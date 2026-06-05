@@ -103,6 +103,14 @@ non-gated experiment grind runs as subagents / the workflow.
    surface*, never an auto-demote trigger.
 7. **Reusable code goes in `tools/`; competition-specific code is bootstrapped
    per comp.** Don't fork a tool per competition; extend it in place.
+8. **Libraries first for any model/algorithm; hand-roll only as a fallback.** Always
+   reach for the canonical package first (sklearn / lightgbm / xgboost / catboost, `tabm` +
+   `rtdl_num_embeddings` for TabM & tabular NNs, etc.) — a hand-rolled architecture risks
+   subtle, silent bugs that waste compute and poison CV. Add the dep with `uv add` (rule 1)
+   and verify it doesn't break the working GPU/torch build. Hand-rolling is acceptable only
+   when the library **critically fails** (no compatible build, unfixable bug, missing the
+   needed variant) — try the library first, and if you fall back, say so explicitly with the
+   reason. (A thin training loop around a library `Module` is normal, not hand-rolling.)
 
 ---
 

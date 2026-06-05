@@ -16,12 +16,18 @@ dependencies = [
     "lightgbm>=4.6.0",
     "catboost>=1.2.10",
     "xgboost>=3.2.0",
+    "torch>=2.11.0",
+    "tabm>=0.0.3",
+    "rtdl-num-embeddings>=0.0.12",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=7.0",
 ]
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cu128"
 
 # The Kaggle CLI is a runtime tool invoked via subprocess by tools/kaggle_io.py.
 # Install it into this project's env once: `uv add kaggle`.

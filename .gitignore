@@ -20,7 +20,6 @@
 # 3) re-include the root files we ship
 !/.gitignore
 !/CLAUDE.md
-!/MEMORY.md
 !/README.md
 !/pyproject.toml
 !/uv.lock
@@ -32,6 +31,8 @@ comps/*
 #    personal/local Claude Code settings (machine-specific)
 .claude/settings.json
 .claude/settings.local.json
+#    local cross-competition memory (case bank) — stays local, never committed
+MEMORY.md
 #    python caches / build artifacts anywhere
 __pycache__/
 *.pyc
