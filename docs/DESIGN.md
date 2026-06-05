@@ -4,7 +4,7 @@ This is the *why* behind the playbook. The standing contract is `CLAUDE.md`; the
 procedures are the skills in `.claude/skills/`; the workers are the subagents in
 `.claude/agents/`; the auto-mode fan-out is `.claude/workflows/experiment-loop.js`;
 the reusable code is in `tools/`. This file explains the research lineage we
-borrowed from, why we run it as markdown inside Claude Code, the tree/gate/
+borrowed from, why we run it as markdown inside Claude Code, the graph/gate/
 validation/resume models, the mapping from our sibling neural-ring-detector loop,
 and the honest expectations.
 
@@ -34,9 +34,10 @@ search***. Each node is a complete solution; three operators grow the tree —
 The decisive idea: **history lives in the tree, not the context window**. The
 agent never has to re-summarise its past; the tree *is* the memory, and a node's
 parent edge records exactly what was tried. On MLE-bench, AIDE earned **~4× more
-medals than the best linear (phase-pipeline) agent**. We adopted the tree wholesale
-(§3) and run it as a *supervised* single search rather than the unbounded
-autonomous one.
+medals than the best linear (phase-pipeline) agent**. We adopted the search
+wholesale (§3) — generalised from AIDE's tree to a **DAG** so a `combine` node can
+merge several parents — and run it as a *supervised* single search rather than the
+unbounded autonomous one.
 
 **MLE-bench (arXiv:2410.07095)** — the **medal yardstick**: 75 real Kaggle
 competitions, scored against the actual private leaderboards, reporting
@@ -54,7 +55,7 @@ the target and the public LB as the out-of-distribution check (CLAUDE.md Mission
 cross-competition memory** that accumulates structured experience and reaches
 **Kaggle-grandmaster-equivalent** performance without policy-gradient training.
 Lesson taken: durable memory > clever weights. Within a comp, our memory is the
-append-only `journal.md` + `submissions.md` ledger + the tree statuses; across
+append-only `journal.md` + `submissions.md` ledger + the `graph.md` node records; across
 comps it is the shared, in-place-extended `tools/` library and these docs. We do
 *not* yet carry a cross-comp case bank — that is the natural next increment, and
 it would slot into the toolkit gate.
@@ -65,10 +66,10 @@ plan gates: the first drafts seed from known-good recipes for the task type
 (GBDT-on-tabular, Darts-for-time-series) rather than inventing from scratch, and
 the library/family choice at the toolkit gate seeds the root branches. A full
 retrieval bank is future work; for now the "cases" are the recipes encoded in the
-skills and the operator's parent rule.
+skills and the operator's parents rule.
 
 **One-line summary of the borrow:** *AutoKaggle's tests + tools, run over AIDE's
-tree, measured by MLE-bench's medal yardstick, with Agent-K-style durable memory
+search (generalised to a DAG), measured by MLE-bench's medal yardstick, with Agent-K-style durable memory
 and a DS-Agent retrieve-before-propose instinct — all wrapped in a human-gated
 shell.*
 
@@ -107,22 +108,25 @@ spending a slot; in `full_auto` a submit agent may spend one within budget
 
 ---
 
-## 3 · The tree model
+## 3 · The graph model
 
-The solution tree (`tree.md`) is the search and the memory at once (the AIDE
-idea, arXiv:2502.13138). **Every node is one atomic change** so every CV delta is
-attributable, and it **attaches to the deepest ancestor whose work it keeps**:
+The experiment graph (`graph.md`) is the search and the memory at once (the AIDE
+idea, arXiv:2502.13138, generalised from a tree to a **DAG**). **Every node is one
+atomic change** so every CV delta is attributable, and it **attaches to the
+deepest ancestor(s) whose work it keeps** — most nodes have one parent, but a
+`combine` node merges several:
 
-| change | operator | attaches to |
+| change | operator | parents |
 |---|---|---|
-| whole new approach / model family / framing | **draft** | a new branch under root |
-| build on a working solution (add feature, swap a part, tune) | **improve** | a child of that node — deepens or forks the lineage |
-| fix a broken node | **debug** | a child of the buggy node |
+| whole new approach / model family / framing | **draft** | `root` |
+| build on a working solution (add feature, swap a part, tune) | **improve** | the 1 node it builds on |
+| fix a broken node | **debug** | the 1 buggy node |
+| blend / ensemble / stack several nodes | **combine** | the 2+ nodes it merges |
 
-- The **toolkit gate seeds the root branches**: "use Darts" and "LightGBM on lag
-  features" are branch A and branch B — two families, not two experiments inside
+- The **toolkit gate seeds the root drafts**: "use Darts" and "LightGBM on lag
+  features" are two drafts off `root` — two families, not two experiments inside
   one branch (this is where DS-Agent's retrieve-before-propose lands).
-- The **champion is the best *valid* node anywhere in the tree** — best CV under
+- The **champion is the best *valid* node anywhere in the graph** — best CV under
   the official direction, leakage-clean. On promotion, byte-copy its `src/` +
   `submission.csv` into `champion/` (cp, never symlink); a rejected node leaves
   `champion/` untouched.
@@ -130,15 +134,17 @@ attributable, and it **attaches to the deepest ancestor whose work it keeps**:
   one parent-SEM over **5 consecutive improves**, force a **draft** of a
   structurally different family — *pivot the architecture, don't keep tuning*.
   This is the anti-local-minimum rule; tuning that stalls is the signal to draft.
-- Status, not checkboxes. `tree.md` carries `pending · running · buggy · valid ·
-  champion · dead` per node; **the statuses are the search frontier**, so a
-  restart rebuilds the frontier by reading them.
+- Status, not checkboxes. Each node's `node.md` carries a `status` field (`proposed ·
+  running · buggy · valid · champion · dead`) and a `stage` field (the lifecycle);
+  `graph.md` is the Mermaid DAG + table that maps them. **The statuses are the
+  search frontier**, so a restart rebuilds the frontier by reading `graph.md`.
 
 **Search policy (operator selection each round):** draft while valid-root-families
 < `num_drafts` (default 4) → else debug the shallowest buggy node within depth
 (≤5 attempts; regenerate from scratch after 3 fails; prune to `dead` after 5) →
 else improve the best valid node with exactly one atomic change, A/B'd against its
-parent and rejected on CV regress. The workflow's planner applies the same policy
+parent and rejected on CV regress → else combine 2+ valid, de-correlated nodes when
+a blend's OOF beats the best single. The workflow's planner applies the same policy
 across up to `width` independent nodes per round.
 
 ---
@@ -214,21 +220,23 @@ not good**, and its CV does not count.
 A competition spans days and gets resumed, so state must survive a cold start
 with zero in-context memory. Two rules make that safe.
 
-- **Checkboxes live in exactly two places** — genuine interruptible linear
-  sequences — and everything else is status fields or append-only logs:
+- **Two resume surfaces**, both grounded in artifacts (never trust a label over
+  the file it names):
   - **`progress.md`** (macro) — the one-time setup checklist + stage checkboxes +
-    a derived header. Re-entry resumes at the first unchecked stage.
-  - **`node.md`** (micro) — the per-node lifecycle, **one artifact named per box**
-    (proposed→node.md, code written→src/solution.py, ran clean→train.log, tests→
-    gate_report.md, leakage→leakage_scan.json, cv→metrics.md, decided→tree.md,
-    submitted→submissions.md). A `running` node resumes at its first unchecked box.
-- **Artifact-then-tick** (CLAUDE.md Hard rule 5): do the work → write the artifact
-  → *then* tick the box. Because each box names its artifact, a stale checkbox can
-  never mislead — you verify against the artifact, and a box with no artifact is a
-  lie to be redone. A `running` node with unchecked boxes and zero artifacts is
-  marked `dead`.
-- **Everywhere else is status or append-only:** `tree.md` statuses *are* the
-  frontier; `journal.md` and `submissions.md` are append-only logs.
+    a derived header. Re-entry resumes at the first unticked stage.
+  - **`node.md`** (micro) — the one converged node record (frontmatter = plan +
+    metrics + gate booleans, body = plan prose; one file replacing the old
+    node-record / metrics / gate-report trio, **no checkboxes**). Its **`stage`**
+    field is the per-node lifecycle: `proposed → built → scored → reviewed →
+    decided → submitted`. A `running` node resumes from its `stage` (e.g. `built`
+    with no `cv` ⇒ resume at *score*).
+- **Artifact-then-mark** (CLAUDE.md Hard rule 5): do the work → write the artifact
+  (src/solution.py, train.log, leakage_scan.json, the `cv`/`gates` fields,
+  submission.csv) → *then* advance `stage`. A stage with no backing artifact can
+  never mislead — you verify against the artifact, and a stage claimed without one
+  is a lie to be redone. A `running` node with no artifacts is marked `dead`.
+- **Everywhere else is status or append-only:** the `graph.md` map + node `status`
+  fields *are* the frontier; `journal.md` and `submissions.md` are append-only logs.
 - **Dates from `date -u` UTC, never memory** (`date -u +%Y-%m-%dT%H:%MZ`); your
   sense of "today" is stale on resume.
 - **Budget & deadline are derived, never stored as a mutable counter.**
@@ -240,9 +248,8 @@ with zero in-context memory. Two rules make that safe.
   ensemble.
 
 The canonical restart path is `/kaggle-status`: read `progress.md` → find the
-in-progress stage → if experiments, read `tree.md` statuses to rebuild the
-frontier → open any `running` node's `node.md` and resume at its first unchecked
-box.
+in-progress stage → if experiments, read the `graph.md` map to rebuild the
+frontier → open any `running` node's `node.md` and resume from its `stage`.
 
 ---
 
@@ -254,14 +261,14 @@ The concepts map one-to-one — which is why the operating discipline feels fami
 
 | neural-ring-detector | kaggleforge analogue |
 |---|---|
-| champion / challenger (best model so far vs the run) | **champion node** = best valid node in the tree; each new node is the challenger, A/B'd against its parent |
+| champion / challenger (best model so far vs the run) | **champion node** = best valid node in the graph; each new node is the challenger, A/B'd against its parent |
 | per-experiment file isolation (`experiments/exp_NNN/src/`, self-contained) | per-node isolation (`comps/<slug>/nodes/node_NNNN/src/`, copy-parent-then-one-change); reusable code in `tools/` is extended in place, never forked |
 | marker-file auto-polling (`[ -f $DONE ]`, never `pgrep -f` which self-matches) | identical marker-file pattern for long local trainings (`DONE=/tmp/<slug>_node_NNNN.done`; wait on `[ -f "$DONE" ]`), event-driven, no timers |
 | `journal.md` (append-only, one dense line per experiment) | `journal.md` (append-only, one UTC line per node) + `submissions.md` ledger |
-| `history.json` (champion record + experiments list) | `tree.md` statuses + `champion/` byte-copy (the durable, resumable record) |
+| `history.json` (champion record + experiments list) | the `graph.md` map + per-node `node.md` records + `champion/` byte-copy (the durable, resumable record) |
 | visual_score ≥ 9.0 LLM-judge gate (Claude Vision rates eval cards) | **official-metric CV gate** + the human Decision-Card gate; the LLM-judge role is replaced by a *numeric* gate (the metric) plus *human* sign-off at submit, because Kaggle gives a real metric where ring-fit only had perceptual quality |
 | "numeric metric is a proxy; visual quality is primary" | "well-built local CV is the target; public LB is the OOD check" — CV is the trustworthy signal, LB is the proxy that can mislead |
-| `exp_NNN` ids, `experiments/` tree | `node_NNNN` ids, `tree.md` tree with draft/improve/debug operators |
+| `exp_NNN` ids, `experiments/` tree | `node_NNNN` ids, `graph.md` DAG with draft/improve/debug/combine operators |
 | "silence is a bug — add prints and re-run" | same: a node that returns nothing/hangs gets log visibility, not a guess; `train.log` is tailed filtered for `cv=|Traceback|Error|Killed|OOM` |
 
 The one substantive difference: ring-detection had **no ground-truth metric**, so
@@ -300,8 +307,8 @@ right (`understand`) and spending an irreversible public slot (`submit`).
   DS-Agent's retrieval (arXiv:2402.17453) are only partially realised — the
   "cases" are the recipes baked into skills and the in-place `tools/` library, not
   a queryable bank. That is the clearest next increment.
-- **Single-agent search, supervised.** We deliberately run AIDE's tree
-  (arXiv:2502.13138) as one human-gated search rather than an unbounded swarm.
+- **Single-agent search, supervised.** We deliberately run AIDE's search
+  (arXiv:2502.13138, generalised to a DAG) as one human-gated search rather than an unbounded swarm.
   This trades raw throughput for attributable deltas and a human able to veto at
   the two gates that matter — the right trade when a wrong submission is public
   and rate-limited.

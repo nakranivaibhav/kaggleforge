@@ -1,10 +1,10 @@
 export const meta = {
   name: 'experiment-loop',
-  description: 'AUTO-mode best-first solution-tree fan-out for a Kaggle competition: each round a planner picks operators (draft/improve/debug), developers implement nodes in parallel, reviewers gate them (leakage voids the CV), a summarizer updates tree.md/journal.md. Loops best-first until the day budget is spent, the search stalls, or the deadline is reached. In auto_except_submit it queues the best node for the human; in full_auto a submit agent may spend a slot within budget. No human pauses, no file reads in the script — agents do all work and persist state under comps/<slug>/.',
+  description: 'AUTO-mode best-first solution-graph fan-out for a Kaggle competition: each round a planner picks operators (draft/improve/debug/combine), developers implement nodes in parallel, reviewers gate them (leakage voids the CV), a summarizer updates graph.md/journal.md. Loops best-first until the day budget is spent, the search stalls, or the deadline is reached. In auto_except_submit it queues the best node for the human; in full_auto a submit agent may spend a slot within budget. No human pauses, no file reads in the script — agents do all work and persist state under comps/<slug>/.',
   phases: [
-    { title: 'Orient', detail: 'planner rebuilds the frontier from tree.md + spec.md + journal.md' },
+    { title: 'Orient', detail: 'planner rebuilds the frontier from graph.md + spec.md + journal.md' },
     { title: 'Expand', detail: 'develop → review up to `width` independent frontier nodes per round, in parallel' },
-    { title: 'Decide', detail: 'summarizer scores CVs, updates tree.md/journal.md, reports accepted/stalled/budget/deadline' },
+    { title: 'Decide', detail: 'summarizer scores CVs, updates graph.md/journal.md, reports accepted/stalled/budget/deadline' },
     { title: 'Submit', detail: 'queue the champion (auto_except_submit) or spend one slot within budget (full_auto)' },
   ],
 }
@@ -16,7 +16,7 @@ export const meta = {
 //   maxRounds  — hard cap on rounds (default 12)
 //   width      — independent frontier nodes expanded per round (default 2)
 // The script never reads/writes files itself — agents persist everything under
-// comps/<slug>/ (tree.md, journal.md, nodes/node_NNNN/, champion/) and return summaries.
+// comps/<slug>/ (graph.md, journal.md, nodes/node_NNNN/, champion/) and return summaries.
 // ---------------------------------------------------------------------------
 const SLUG = args.slug
 const MODE = args.mode || 'auto_except_submit'
@@ -51,13 +51,13 @@ const PLAN_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['node_id', 'operator', 'parent_id', 'parent_src', 'family', 'change'],
+        required: ['node_id', 'op', 'parents', 'parent_src', 'family', 'change'],
         properties: {
-          node_id: { type: 'string', description: 'next zero-padded id, e.g. node_0007 (already reserved + row added to tree.md by the planner)' },
-          operator: { type: 'string', enum: ['draft', 'improve', 'debug'] },
-          parent_id: { type: 'string', description: 'deepest ancestor whose work this change keeps; "root" for a draft off baseline' },
+          node_id: { type: 'string', description: 'next zero-padded id, e.g. node_0007 (already reserved + node added to graph.md by the planner)' },
+          op: { type: 'string', enum: ['draft', 'improve', 'debug', 'combine'] },
+          parents: { type: 'array', items: { type: 'string' }, description: 'deepest ancestor(s) whose work this change keeps: ["root"] for a draft off baseline, the 1 node for improve/debug, the 2+ merged nodes for combine' },
           parent_src: { type: 'string', description: 'repo-relative parent src dir to copy from, e.g. comps/<slug>/champion/src or comps/<slug>/nodes/node_0003/src' },
-          family: { type: 'string', description: 'gbdt|nn|linear|darts|… — drafts must be a structurally different family' },
+          family: { type: 'string', description: 'gbdt|nn|linear|darts|ensemble|baseline — drafts must be a structurally different family' },
           change: { type: 'string', description: 'the ONE atomic change, in one line' },
         },
       },
@@ -102,7 +102,7 @@ const REVIEW_SCHEMA = {
 const SUMMARY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['accepted', 'new_champion_node', 'champion_cv', 'cv', 'stalled', 'families_alive', 'budget_left', 'deadline_reached', 'tree_line'],
+  required: ['accepted', 'new_champion_node', 'champion_cv', 'cv', 'stalled', 'families_alive', 'budget_left', 'deadline_reached', 'graph_line'],
   properties: {
     accepted: { type: 'boolean', description: 'a node this round beat the champion beyond 2·SEM, leak-clean' },
     new_champion_node: { type: 'string', description: 'node id if promoted, else the unchanged champion id' },
@@ -112,7 +112,7 @@ const SUMMARY_SCHEMA = {
     families_alive: { type: 'integer' },
     budget_left: { type: 'integer', description: 'submission slots remaining today, from `uv run tools/kaggle_io.py budget` (UTC-derived)' },
     deadline_reached: { type: 'boolean', description: 'days_left <= 0 from spec deadline vs `date -u`' },
-    tree_line: { type: 'string', description: 'one line summarizing the tree state after the round' },
+    graph_line: { type: 'string', description: 'one line summarizing the graph state after the round' },
   },
 }
 
@@ -140,22 +140,24 @@ NEVER re-split with a new seed (auto-reject). Leakage VOIDS a CV no matter how g
 function plannerPrompt(round) {
   return `${STANDING}
 
-You are the PLANNER for AUTO-mode round ${round} of competition "${SLUG}" (best-first solution-tree search).
-Read ${ROOT}/tree.md (node statuses: pending·running·buggy·valid·champion·dead), ${ROOT}/journal.md (tail),
+You are the PLANNER for AUTO-mode round ${round} of competition "${SLUG}" (best-first solution-graph search).
+Read ${ROOT}/graph.md (the Mermaid DAG + table; node statuses: proposed·running·buggy·valid·champion·dead), ${ROOT}/journal.md (tail),
 and ${ROOT}/spec.md (metric, direction, target(s), id, task_type, time_col?, group_key?).
 
 Apply the search policy from CLAUDE.md to choose up to ${WIDTH} INDEPENDENT nodes to expand this round
 (distinct parents/families so developers can run in parallel without colliding):
-  1. draft  — while valid/champion root-families < 4: a structurally DIFFERENT family (gbdt vs nn vs linear vs darts). parent_id="root", parent_src="${ROOT}/champion/src".
-  2. debug  — else the shallowest 'buggy' node within depth (regenerate from scratch after 3 failed attempts; dead after 5). parent = the buggy node.
-  3. improve— else the best valid/champion node, EXACTLY ONE atomic change, A/B vs its parent. parent_src="${ROOT}/nodes/<parent>/src".
+  1. draft   — while valid/champion root-families < 4: a structurally DIFFERENT family (gbdt vs nn vs linear vs darts). parents=["root"], parent_src="${ROOT}/champion/src".
+  2. debug   — else the shallowest 'buggy' node within depth (regenerate from scratch after 3 failed attempts; dead after 5). parents=[the buggy node].
+  3. improve — else the best valid/champion node, EXACTLY ONE atomic change, A/B vs its parent. parents=[parent], parent_src="${ROOT}/nodes/<parent>/src".
+  4. combine — when 2+ valid, de-correlated nodes' blend should beat the best single: parents=[the 2+ merged nodes].
   - Keep >=2 families alive: if the best lineage hasn't beaten CV by >1·SEM over 5 consecutive improves, force a draft of a different family.
 
 For EACH chosen node: reserve the next zero-padded node_id, \`mkdir -p ${ROOT}/nodes/<node_id>/src\`,
-write its node.md from CLAUDE.md's template — fill the \`## plan\` with detail: built on (parent + what
-stays byte-identical), change (2-4 lines, the concrete HOW the developer implements and the solution.py
-docstring expands), hypothesis, target; created=\`date -u +%Y-%m-%dT%H:%MZ\`, lifecycle all unchecked
-except \`[x] proposed\` — and add a 'running' row to ${ROOT}/tree.md.
+write its node.md from CLAUDE.md's template — frontmatter (id, desc <=8 words, op, parents list, family, status=proposed,
+stage=proposed, metric, direction, cv/sem/folds=null, created=\`date -u +%Y-%m-%dT%H:%MZ\`) and the \`## plan\` body:
+built on (parent(s) + what stays byte-identical), change (2-4 lines, the concrete HOW the developer implements and the
+solution.py docstring expands), hypothesis, target — and add the node (DAG edge from each parent + a table row, status
+'running') to ${ROOT}/graph.md, refreshing its header line (metric · champion · updated \`date -u\`).
 Return the node specs plus the frontier read. Set stop_now=true ONLY if the deadline is reached (compare spec deadline to \`date -u +%F\`)
 or no useful operator remains (search exhausted). Return ONLY the structured object.`
 }
@@ -163,17 +165,18 @@ or no useful operator remains (search exhausted). Return ONLY the structured obj
 function developerPrompt(node) {
   return `${STANDING}
 
-Implement ONE solution-tree node in isolation (fresh context). You are the kaggle-developer.
-  node: ${node.node_id}   operator: ${node.operator}(parent=${node.parent_id})   family: ${node.family}
+Implement ONE solution-graph node in isolation (fresh context). You are the kaggle-developer.
+  node: ${node.node_id}   op: ${node.op}(parents=${JSON.stringify(node.parents)})   family: ${node.family}
   parent src to copy: ${node.parent_src}
-  target node dir: ${ROOT}/nodes/${node.node_id}/   (src/, node.md, train.log, metrics.md, submission.csv, features.txt)
+  target node dir: ${ROOT}/nodes/${node.node_id}/   (src/, node.md, train.log, submission.csv, features.txt)
   ONE atomic change: ${node.change}
 
 Steps:
 1. Copy ${node.parent_src} -> ${ROOT}/nodes/${node.node_id}/src/, then apply ONLY the one change above.
 2. Write src/solution.py that: loads ${ROOT}/data/train.csv + test.csv; loops the folds in ${ROOT}/folds.json;
    FITS EVERY transform (scaler/encoder/imputer/target-encoder/selector) INSIDE the train fold only;
-   computes OOF predictions + the official metric per fold; writes per-fold scores to metrics.md and the
+   computes OOF predictions + the official metric per fold; writes the cv mean+sem, per-fold scores (folds),
+   baseline_cv and shuffled_cv into the node.md frontmatter (cv/sem/folds/baseline_cv/shuffled_cv), the
    feature columns (one per line) to src/features.txt; writes submission.csv (schema = sample_submission);
    runs the in-harness SHUFFLED-LABEL control (import shuffled_label_ok from tools/leakage_scan.py) so a
    permuted-label refit collapses to the random baseline; and PRINTS a final \`cv=<mean>\` line.
@@ -182,17 +185,20 @@ Steps:
      (uv run python ${ROOT}/nodes/${node.node_id}/src/solution.py > ${ROOT}/nodes/${node.node_id}/train.log 2>&1 ; touch "\$DONE") &
    wait on [ -f "\$DONE" ]; tail the log filtered for: cv=|Traceback|Error|Killed|OOM.
 4. Validate the file: \`uv run tools/validate_submission.py --submission ${ROOT}/nodes/${node.node_id}/submission.csv --sample ${ROOT}/data/sample_submission.csv --id <id_col from spec>\`.
-Add any per-comp modelling dep with \`uv add <pkg>\`. Tick node.md boxes artifact-then-tick.
+Add any per-comp modelling dep with \`uv add <pkg>\`. Advance node.md's \`stage\` artifact-then-mark
+(proposed -> built once src+cv exist -> scored once the frontmatter cv/folds are written); set status='running'.
 If train.log has no traceback, ran_clean=true. Return ONLY the structured object.`
 }
 
 function reviewerPrompt(node) {
   return `${STANDING}
 
-GATE ONE node (you are the kaggle-reviewer; read-only except gate_report.md — do NOT edit solution code).
+GATE ONE node (you are the kaggle-reviewer; read-only except the node.md \`gates:\` frontmatter — do NOT edit solution code).
   node dir: ${ROOT}/nodes/${node.node_id}/
 
-Run the unit tests + the leakage suite, then write ${ROOT}/nodes/${node.node_id}/gate_report.md (PASS/FAIL per check):
+Run the unit tests + the leakage suite, then write the boolean results into ${ROOT}/nodes/${node.node_id}/node.md's
+\`gates:\` frontmatter map {schema_ok, oof_full, no_nan, dist_sane, leak_clean, shuffle_collapsed, cv_too_good, passed}
+(passed = every required gate true; one check per field):
 - Unit tests: submission schema/rowcount/id-set via \`uv run tools/validate_submission.py\`; OOF coverage == full train set; no NaN/inf; target distribution sane.
 - Structural leakage scan:
     uv run tools/leakage_scan.py \\
@@ -206,28 +212,31 @@ Run the unit tests + the leakage suite, then write ${ROOT}/nodes/${node.node_id}
 - cv_too_good tripwire: an implausible CV jump is flagged (surface to the human before any submission).
 - Inspect per-fold deltas vs champion — one outlier fold must not carry the mean.
 
-Verdict: any error-severity leak => verdict='dead' if the leak is intrinsic to the change, else 'buggy'; leak_clean=false; cv_mean=NaN.
-Any failed unit test or crash => 'buggy'. Otherwise 'valid' with cv_mean (from metrics.md) and cv_sem = std(ddof=1)/sqrt(k).
-Return ONLY the structured object.`
+Verdict: any error-severity leak => verdict='dead' if the leak is intrinsic to the change, else 'buggy'; gates.leak_clean=false,
+node.md \`leak: VOID\`, cv_mean=NaN. Any failed unit test or crash => 'buggy'. Otherwise 'valid' with cv_mean (from the node.md
+\`cv\` frontmatter) and cv_sem = std(ddof=1)/sqrt(k), node.md \`leak: clean\`. Set node.md \`status\` (buggy·dead·valid) and advance
+\`stage\` to reviewed. Return ONLY the structured object.`
 }
 
 function summarizerPrompt(round, devs, reviews) {
   return `${STANDING}
 
-You are the SUMMARIZER for round ${round} of "${SLUG}". Fold this round's results into the tree + journal and report loop control.
+You are the SUMMARIZER for round ${round} of "${SLUG}". Fold this round's results into the graph + journal and report loop control.
 
 Developer results: ${JSON.stringify(devs)}
 Reviewer verdicts:  ${JSON.stringify(reviews)}
 
 For EACH node this round:
-- Update its ${ROOT}/tree.md status from the reviewer verdict (valid·buggy·dead), filling the CV cell for valid nodes (mean±sem).
-- DECIDE promotion vs the current champion (read ${ROOT}/champion/README + tree.md): accept as new champion IFF the node is
+- Update its node.md \`status\`/\`stage\` and the matching ${ROOT}/graph.md node + table row from the reviewer verdict
+  (valid·buggy·dead), filling the CV cell + Mermaid label cv for valid nodes (mean±sem), and refresh the graph.md header line.
+- DECIDE promotion vs the current champion (read ${ROOT}/champion/README + graph.md): accept as new champion IFF the node is
   valid AND leak_clean AND its CV beats the champion BEYOND 2·SEM in the spec's direction AND (if this lineage has a submitted LB)
   the CV gain is directionally consistent with the LB. A within-noise win is NOT a promotion (stays 'valid').
   On accept: byte-copy (cp, never symlink) nodes/<id>/src + submission.csv into ${ROOT}/champion/, update champion/README
-  (node id, cv±sem, \`date -u\`, one-line change), set tree.md status 'champion', demote the prior champion to 'valid'.
+  (node id, cv±sem, \`date -u\`, one-line change), set the new node's status 'champion' (node.md + graph.md, champ-styled),
+  demote the prior champion to 'valid', advance the node's \`stage\` to decided (\`decided\` = \`date -u\`).
 - Append ONE timestamped journal line per node to ${ROOT}/journal.md:
-    - <date -u +%Y-%m-%dT%H:%MZ>  <node_id>  <op>(parent=<id>)  cv=<mean>±<sem>  leak=<clean|VOID>  -> <champion|valid|buggy|dead>: <one-line reason>
+    - <date -u +%Y-%m-%dT%H:%MZ>  <node_id>  <op>(parents=<ids>)  cv=<mean>±<sem>  leak=<clean|VOID>  -> <champion|valid|buggy|dead>: <one-line reason>
 
 Then compute loop control:
 - stalled: running count of consecutive IMPROVE nodes (across rounds) with no >1·SEM CV gain on the best lineage — increment if no
@@ -258,7 +267,7 @@ Return ONLY the structured object.`
 
 // ===== loop ================================================================
 
-const tried = []          // {node_id, operator, parent, family, change, verdict, cv}
+const tried = []          // {node_id, op, parents, family, change, verdict, cv}
 const rounds = []
 let champion = null
 let championCv = NaN
@@ -288,7 +297,7 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
   }
 
   const nodes = plan.nodes.slice(0, WIDTH)
-  log(`round ${round}: ${plan.frontier_summary} | expanding ${nodes.map(n => `${n.node_id}:${n.operator}`).join(', ')}`)
+  log(`round ${round}: ${plan.frontier_summary} | expanding ${nodes.map(n => `${n.node_id}:${n.op}`).join(', ')}`)
 
   // Expand each frontier node in parallel: develop -> review (sequenced inside the lane,
   // because subagents can't nest — the workflow does the sequencing here).
@@ -313,12 +322,12 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
   const devs = lanes.map(l => l.dev)
   const reviews = lanes.map(l => l.review)
   for (const l of lanes) {
-    tried.push({ node_id: l.node.node_id, operator: l.node.operator, parent: l.node.parent_id,
+    tried.push({ node_id: l.node.node_id, op: l.node.op, parents: l.node.parents,
                  family: l.node.family, change: l.node.change, verdict: l.review.verdict,
                  cv: l.review.cv_mean, leak_clean: l.review.leak_clean })
   }
 
-  // Summarize: update tree.md/journal.md, decide promotion, report control signals.
+  // Summarize: update graph.md/journal.md, decide promotion, report control signals.
   phase('Decide')
   const summary = await agent(summarizerPrompt(round, devs, reviews),
     { label: `summary:r${round}`, phase: 'Decide', schema: SUMMARY_SCHEMA })
@@ -331,7 +340,7 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
     stalled = summary.stalled
     budgetLeft = summary.budget_left
     deadlineReached = summary.deadline_reached
-    log(`round ${round}: ${summary.tree_line} | accepted=${summary.accepted} champ=${champion}@${championCv} stalled=${stalled} budget=${budgetLeft} deadline=${deadlineReached}`)
+    log(`round ${round}: ${summary.graph_line} | accepted=${summary.accepted} champ=${champion}@${championCv} stalled=${stalled} budget=${budgetLeft} deadline=${deadlineReached}`)
 
     // Submit policy on a promotion.
     if (summary.accepted) {
@@ -378,7 +387,7 @@ return {
   deadline_reached: deadlineReached,
   queued_for_submit: queuedNote,   // set in auto_except_submit (human gates the real submission)
   submitted: submittedNote,        // set in full_auto if a slot was spent
-  nodes_tried: tried,              // [{node_id, operator, parent, family, change, verdict, cv, leak_clean}]
+  nodes_tried: tried,              // [{node_id, op, parents, family, change, verdict, cv, leak_clean}]
   rounds,                          // per-round frontier + summarizer signals
   next_action: queuedNote
     ? `Surface the Decision Card for ${champion} and ask the human before submitting (auto_except_submit).`

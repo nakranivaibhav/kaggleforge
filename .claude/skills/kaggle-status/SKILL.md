@@ -9,7 +9,7 @@ allowed-tools: Bash, Read
 
 You report where one competition stands, in plain language, and (because this is
 the resume path) you end by stating **exactly where to resume**. You change
-**nothing**: no training, no submitting, no editing `progress.md` / `tree.md` /
+**nothing**: no training, no submitting, no editing `progress.md` / `graph.md` /
 `node.md`. Regenerating the header below is a *report you print to chat*, not a
 file write.
 
@@ -53,18 +53,20 @@ final-ensemble / submit, not new drafts."
 Read `$C/progress.md`. The stage checkboxes are the macro sequence
 (`understand · toolkit · eda · validation · experiment_plan · submit` flow per the
 stage table). Report:
-- the **first unchecked** stage = where the comp currently is;
+- the **first unticked** stage = where the comp currently is;
 - the autonomy mode from `$C/config.md` (`interactive` / `auto_except_submit` /
   `full_auto`) and what it pauses at.
 
-## 3 · The tree (only if at/after the experiment stage)
-Read `$C/tree.md` (skip if it doesn't exist yet — pre-experiment comp). Report:
-- **counts by status**: `pending · running · buggy · valid · champion · dead`
+## 3 · The graph (only if at/after the experiment stage)
+Read `$C/graph.md` (skip if it doesn't exist yet — pre-experiment comp). The
+`## nodes` table carries one row per node (`status` column); the header line names
+the champion. Report:
+- **counts by status**: `proposed · running · buggy · valid · champion · dead`
   (one tally line);
 - the **champion node**: its id, its CV (with the official metric name + direction
-  from `validation.md`/`spec.md`), and its **public LB** if `submissions.md` has a
-  scored row for it. If CV and LB diverge, state the gap as a *diagnostic to
-  surface*, never an auto-demote — per the trust-CV rule;
+  from `validation.md`/`spec.md`), and its **public LB** (the row's `lb` cell, or
+  `submissions.md` if newer). If CV and LB diverge, state the gap as a *diagnostic
+  to surface*, never an auto-demote — per the trust-CV rule;
 - the search frontier in one line: how many `valid` roots (families) are alive,
   and whether any `running`/`buggy` nodes are open.
 
@@ -74,15 +76,16 @@ those lines verbatim under "Recent activity" — they're the densest history.
 
 ## 5 · Resume pointer (this is the entry point)
 Follow the resume model end-to-end and state **one concrete next action**:
-1. From `progress.md`, take the first unchecked stage.
+1. From `progress.md`, take the first unticked stage.
 2. If that stage is **before** experiments → next action is "run `/<that-stage's
    skill>`" (e.g. unchecked `validation` → `/kaggle-validate`).
-3. If at the **experiment** stage → read `tree.md` to rebuild the frontier, then:
-   - If a node is `running`: open `$C/nodes/<id>/node.md`, find its **first
-     unchecked lifecycle box**, and say "resume node `<id>` at: `<that box>` →
-     `<the artifact that box names>`". If that node has unchecked boxes **and no
-     artifacts on disk**, say it's stale → "mark `<id>` dead and pick the next
-     operator" (don't resume a ghost).
+3. If at the **experiment** stage → read `graph.md` to rebuild the frontier, then:
+   - If a node is `running`: open `$C/nodes/<id>/node.md`, read its `stage` field
+     (`proposed → built → scored → reviewed → decided → submitted`), and say
+     "resume node `<id>` at: `<next stage after `stage`>` → `<the artifact that
+     stage produces>`" (e.g. `built` with null `cv` ⇒ resume at *score*). If that
+     node's `stage` is past `proposed` **but no artifacts are on disk**, say it's
+     stale → "mark `<id>` dead and pick the next operator" (don't resume a ghost).
    - If nothing is `running`: apply the search policy to name the next operator —
      **draft** while valid-root count < 4; else **debug** an open `buggy` node
      (regenerate after 3 failed attempts, prune to `dead` after 5); else
@@ -91,8 +94,8 @@ Follow the resume model end-to-end and state **one concrete next action**:
 4. If `submissions: 5/5` for today, add: "submission budget spent — resets 00:00
    UTC; CV work can continue, no submit until reset."
 
-Verify every checkbox against the artifact it names before trusting it
-(artifact-then-tick): a ticked box whose file is missing is a lie — report the
+Verify a node's `stage` against the artifacts it implies before trusting it
+(artifact-then-mark): a `stage` past the file that proves it is a lie — report the
 mismatch instead of believing it.
 
 ## 6 · The readout (print this, then stop)
@@ -104,7 +107,7 @@ not in-chat thumbnails.
 📍 <slug> — status
 <header line from §1>
 Stage:       <current stage> · autonomy <mode>
-Tree:        <N> nodes — <pending p · running r · buggy b · valid v · champion 1 · dead d>
+Graph:       <N> nodes — <proposed p · running r · buggy b · valid v · champion 1 · dead d>
 Champion:    <node id> · CV <metric>=<val> (<dir>) · LB <lb|not scored>  → champion/
 Recent:      (last journal lines)
   <line>

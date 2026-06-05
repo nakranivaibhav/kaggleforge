@@ -1,6 +1,6 @@
 ---
 name: kaggle-eda
-description: Stage-1 interactive EDA + cleaning for a Kaggle comp — inspect the data with small `uv run python` snippets, optionally fan out the kaggle-eda-explorer subagent for parallel angles, write free-form findings to eda.md, and turn each cleaning/feature decision into reusable code + a small unit test. Use when the `eda` gate is the first unchecked stage in `comps/<slug>/progress.md`, or when the human says "do EDA", "look at the data", or "clean the data".
+description: Stage-1 interactive EDA + cleaning for a Kaggle comp — inspect the data with small `uv run python` snippets, optionally fan out the kaggle-eda-explorer subagent for parallel angles, write free-form findings to eda.md, and turn each cleaning/feature decision into reusable code + a small unit test. Use when the `eda` gate is the first unticked stage in `comps/<slug>/progress.md`, or when the human says "do EDA", "look at the data", or "clean the data".
 argument-hint: <slug>   (the comp folder under comps/, e.g. titanic)
 allowed-tools: Bash, Read, Write, Edit
 ---
@@ -22,7 +22,7 @@ is proven by its test passing, not by a tick.
 
 ## 0. Resume + preconditions
 1. `today=$(date -u +%F)`. Read `$C/progress.md`; confirm `eda` is the first
-   unchecked stage. If `understand`/`toolkit` are unchecked, stop and tell the
+   unticked stage. If `understand`/`toolkit` are unticked, stop and tell the
    human to run `/kaggle-start` first.
 2. Read `$C/spec.md` — especially its fenced machine block. Pull: `task_type`,
    `metric` (+ direction), `target`, `id_col`, and any `time_col` / `group_key`

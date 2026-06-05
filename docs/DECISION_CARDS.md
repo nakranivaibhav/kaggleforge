@@ -42,7 +42,7 @@ Field rules:
   human or *proceeding* on its own (see the dial table at the end).
 
 The card is a readout, not a place to do work. The work already happened; its
-artifacts are on disk (`spec.md`, `eda.md`, `validation.md`, `tree.md`,
+artifacts are on disk (`spec.md`, `eda.md`, `validation.md`, `graph.md`,
 `submissions.md`, the node folders). The card points at them.
 
 The "daily 5" in **Cost** is derived, never typed from memory:

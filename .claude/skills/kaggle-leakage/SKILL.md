@@ -74,12 +74,14 @@ uv run tools/leakage_scan.py ... ; echo "exit=$?"
 ```
 
 - **exit 0** → no `error`-severity check failed. `warn`s may still be present
-  (printed as `[warn]`, written to the JSON) — surface them in `gate_report.md`,
-  but they do **not** void the CV. Resolve a `no_global_fit_in_source` warn by
-  reading the flagged line and confirming the fit is inside-fold.
+  (printed as `[warn]`, written to the JSON) — surface them in the node's
+  `gate_note` (and `cv_too_good` in `gates:`), but they do **not** void the CV.
+  Resolve a `no_global_fit_in_source` warn by reading the flagged line and
+  confirming the fit is inside-fold.
 - **exit 1** → at least one **`error`**-severity check failed → **VOID this
   node's CV.** The node is *buggy*, not *valid*, no matter what its metric says.
-  In `tree.md` mark it `buggy`; the fix is a **debug** child, not a re-score.
+  In `node.md` set `gates.leak_clean: false`, `leak: VOID`, and
+  `status: buggy`; the fix is a **debug** child, not a re-score.
 
 The reviewer's PASS/FAIL is exactly this exit code AND a passing shuffled-label
 control (below). Both must hold for the CV to count.
@@ -128,7 +130,8 @@ print(f"shuffled-label control OK: shuffled_cv={shuffled_cv:.5f} ~ baseline")
 `shuffled_label_ok(minimize)` returns True when `shuffled_cv >= baseline − 0.05`
 (error got no better than random); `maximize` when `shuffled_cv <= baseline +
 0.05`. A failed assertion is a **void**, identical in force to an exit-1 from the
-static/structural scan. Record `shuffled_cv` in `metrics.md` next to the real CV.
+static/structural scan. Record `shuffled_cv` in the node's `node.md` frontmatter,
+and set `gates.shuffle_collapsed` (and on a fail, `leak: VOID`) accordingly.
 
 ---
 

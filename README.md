@@ -121,7 +121,7 @@ kaggleforge/
       kaggle-reviewer.md          #   runs unit-test + leakage suite, PASS/FAIL, voids on leak
       kaggle-eda-explorer.md      #   fans out EDA probes
     workflows/
-      experiment-loop.js          # auto-mode best-first fan-out over the tree
+      experiment-loop.js          # auto-mode best-first fan-out over the graph
   comps/                          # one folder per competition (data gitignored)
     <slug>/ …                     # see below
 ```
@@ -138,11 +138,11 @@ comps/<slug>/
   eda.md           # findings + cleaning rationale (prose, no checkboxes)
   validation.md    # the frozen CV scheme + why it matches the official metric
   folds.json       # frozen fold indices (split-seed only)
-  tree.md          # the solution tree — one row per node, with STATUS (pending/running/buggy/valid/champion/dead)
+  graph.md         # THE MAP: a Mermaid DAG of all nodes + a description table linking to each node.md
   journal.md       # append-only, one timestamped line per node
   submissions.md   # append-only, UTC-timestamped ledger — the source of truth for budget
   champion/        # the best valid node's src/ + submission.csv + README (byte-copied, never symlinked)
-  nodes/node_NNNN/ # node.md (micro resume checklist), src/, train.log, metrics.md, gate_report.md,
+  nodes/node_NNNN/ # node.md (THE node record: plan + metrics + gate booleans), src/, train.log,
                    #   leakage_scan.json, submission.csv
   data/            # downloaded + unzipped (gitignored)
 ```
@@ -162,10 +162,11 @@ diagnostic, never auto-acted. The submission **budget and deadline are derived
 from UTC timestamps** in `submissions.md` at read time (≈5/day, resets 00:00 UTC)
 so they can't drift across a resume; dates always come from `date -u`, never
 memory. The whole run is **resumable**: macro state in `progress.md` checkboxes,
-micro per-node state in `node.md` checkboxes (one named artifact per box,
-artifact-then-tick) — on restart, resume at the first unchecked stage, rebuild the
-search frontier from `tree.md` statuses, and continue the in-progress node at its
-first unchecked box.
+micro per-node state in the converged `node.md` record's **`stage`** field
+(`proposed → built → scored → reviewed → decided → submitted`, advanced only after
+its artifact exists — artifact-then-mark) — on restart, resume at the first
+unchecked stage, rebuild the search frontier from the `graph.md` map, and continue
+the in-progress node from its `stage`.
 
 ### Running unattended
 
@@ -182,6 +183,6 @@ The repo itself ships **no** permission config — you opt in locally.
 
 ---
 
-**For the full rules — the Decision Card format, tree operators
-(draft/improve/debug), the complete leakage suite, the marker-file pattern for
-long trainings, and the subagent/workflow split — read [`CLAUDE.md`](CLAUDE.md).**
+**For the full rules — the Decision Card format, graph operators
+(draft/improve/debug/combine), the complete leakage suite, the marker-file pattern
+for long trainings, and the subagent/workflow split — read [`CLAUDE.md`](CLAUDE.md).**

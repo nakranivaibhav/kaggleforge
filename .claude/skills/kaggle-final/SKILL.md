@@ -25,11 +25,11 @@ Run this when `days_left` is small (≈≤1) or the human asks. If there's still
 runway, say so and stay in `/kaggle-experiment` — finals are cheap to defer.
 
 ## 1 · Assemble candidate arms
-From `tree.md`, take the champion plus the top valid nodes by CV (leak-clean only),
-across **distinct families** where possible. For each arm read its OOF predictions
-(`nodes/<id>/src/oof.csv`) and per-fold scores (`metrics.md`). You need the OOFs
-aligned to the same frozen `folds.json` row order — they are, because every node
-used the same split.
+From `graph.md`, take the champion plus the top valid nodes by CV (leak-clean
+only), across **distinct families** where possible. For each arm read its OOF
+predictions (`nodes/<id>/src/oof.csv`) and per-fold scores (the `folds:` field in
+its `node.md`). You need the OOFs aligned to the same frozen `folds.json` row
+order — they are, because every node used the same split.
 
 ## 2 · Oracle-complementarity check (only blend disjoint failures)
 A blend only helps when arms fail on **different** rows. Measure it on OOF, not the
@@ -79,9 +79,15 @@ print("best blend w=",np.round(best[0],2)," cv=",round(best[1],5),
 PY
 ```
 If the blend doesn't beat the best single, **don't blend** — submit the single.
-If it does, write `nodes/blend_final/src/solution.py` that applies those weights to
-the arms' **test** predictions and emits `submission.csv` (validate it like any
-node, run the leakage scan on its inputs — the arms already passed).
+If it does, the blend is a **first-class `combine` node** — give it the next
+`node_NNNN` id and write a converged `node.md` whose frontmatter has
+`op: combine`, `parents: [<the blended arm ids>]`, `family: ensemble`, the blend
+CV in `cv:`, and the `gates:` booleans filled in. Write
+`nodes/node_NNNN/src/solution.py` that applies those weights to the arms' **test**
+predictions and emits `submission.csv` (validate it like any node, run the leakage
+scan on its inputs — the arms already passed). Add the node to `graph.md`: a
+Mermaid edge from **each** parent into it (`<parent> --> node_NNNN`) plus a row in
+the nodes table.
 
 ## 4 · The 2 finals + submit (budget-gated)
 Choose the two entries to lock in:
@@ -91,7 +97,7 @@ Choose the two entries to lock in:
 For any final not already on the leaderboard, submit it via the submit skill
 (spends a slot; near the deadline, budget may bind — check it first):
 ```
-/kaggle-submit <slug> blend_final --message "final blend cv=<cv>"
+/kaggle-submit <slug> node_NNNN --message "final blend cv=<cv>"
 ```
 Validate every file with `tools/validate_submission.py` before submitting.
 

@@ -1,6 +1,6 @@
 ---
 name: kaggle-submit
-description: Budget-gated Kaggle submission with async public-score poll. Use when a valid node's CV beats the last-submitted CV by more than fold-noise and you want to spend one of the day's 5 submission slots, or when `/kaggle-baseline` / `/kaggle-experiment` reach the `submit` gate. Computes today's budget from the UTC ledger (never a stored counter), blocks the 6th/day, renders the SUBMIT Decision Card (gated except `full_auto`), submits, polls the async public score, appends a UTC row to submissions.md, ticks the node's `submitted` box, and logs the CV↔LB gap as a diagnostic.
+description: Budget-gated Kaggle submission with async public-score poll. Use when a valid node's CV beats the last-submitted CV by more than fold-noise and you want to spend one of the day's 5 submission slots, or when `/kaggle-baseline` / `/kaggle-experiment` reach the `submit` gate. Computes today's budget from the UTC ledger (never a stored counter), blocks the 6th/day, renders the SUBMIT Decision Card (gated except `full_auto`), submits, polls the async public score, appends a UTC row to submissions.md, sets the node's the `stage` to submitted + `lb`, updates its row in `graph.md`, and logs the CV↔LB gap as a diagnostic.
 argument-hint: <slug> <node_id>   e.g. titanic node_0007
 allowed-tools: Bash, Read, Write, Edit
 ---
@@ -20,9 +20,10 @@ current champion (`comps/<slug>/champion/`). All paths below are repo-relative.
 ## 0 · Preconditions (read, don't retry around the human gates)
 
 - `comps/<slug>/nodes/<node_id>/submission.csv` exists, and its `node.md`
-  shows `leakage clean` and `cv computed` already ticked. A node that hasn't
-  cleared the leakage suite **cannot** be submitted — leakage voids the score
-  (Hard rule 3). If those boxes aren't ticked, stop and say so.
+  frontmatter shows `leak: clean` and a non-null `cv` (i.e. `stage` is at least
+  `scored`). A node that hasn't cleared the leakage suite **cannot** be submitted
+  — leakage voids the score (Hard rule 3). If `leak` isn't `clean` or `cv` is
+  null, stop and say so.
 - `KAGGLE_USERNAME` / `KAGGLE_KEY` are in the env (the tool fails with a clear
   message otherwise). A 403 here means **rules-not-accepted / unverified**, not
   bad creds — surface the human gate, don't retry.
@@ -58,8 +59,8 @@ uv run tools/kaggle_io.py budget --ledger comps/$slug/submissions.md
 
 The last submitted CV is the `cv` column of the **last row** of
 `comps/$slug/submissions.md` (empty ledger ⇒ this is the first/baseline submit,
-which always passes). Fold-noise is the per-fold SEM recorded in the node's
-`metrics.md` (`cv ± sem`).
+which always passes). Fold-noise is the per-fold SEM in the node's `node.md`
+frontmatter (the `sem:` field).
 
 Submit only if, **in the official metric's improving direction**:
 ```
@@ -165,19 +166,24 @@ with `| <date>` so they're never miscounted):
 
 ---
 
-## 7 · Tick the box, log the gap (artifact-then-tick, never auto-demote)
+## 7 · Advance the stage, log the gap (artifact-then-mark, never auto-demote)
 
-1. In `comps/$slug/nodes/$node/node.md`, tick the last lifecycle box **only now**
-   that the row exists (Hard rule 5 — artifact then tick):
-   `- [x] submitted     → submissions.md  (only if best & budget)`.
-2. Append one timestamped line to `comps/$slug/journal.md`:
+1. In `comps/$slug/nodes/$node/node.md` frontmatter, **only now** that the row
+   exists (Hard rule 5 — artifact then mark), set:
+   - `stage: submitted`
+   - `lb: <public score>` (or `lb: pending` if the poll window closed unscored)
+   - `submitted: <date -u +%F>`
+2. Update that node's row in `comps/$slug/graph.md` — its `lb` cell (and
+   `status`, if this submit promoted it to `champion`). The Mermaid label keeps
+   the node's `cv`; the table carries the `lb`.
+3. Append one timestamped line to `comps/$slug/journal.md`:
    ```
    <date -u +%FT%RZ>  $node  submit  cv=$cv  lb=$lb  gap=$(cv−lb)  used=<used+1>/5
    ```
-3. **Log the CV↔LB gap as a diagnostic, never an auto-demote** (Hard rule 6). A
+4. **Log the CV↔LB gap as a diagnostic, never an auto-demote** (Hard rule 6). A
    large gap is something to *surface to the human* (and consider a one-off
    adversarial-validation diagnostic next round), not a reason to change the
-   champion. The champion is decided by CV in `tree.md`; submitting does not
+   champion. The champion is decided by CV in `graph.md`; submitting does not
    re-rank it.
 
 ---

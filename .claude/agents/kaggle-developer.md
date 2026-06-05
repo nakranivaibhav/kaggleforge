@@ -26,7 +26,7 @@ contract; the **kaggle-leakage** skill (preloaded) is your leakage gate.
 - **parent src path** — `champion/src` (for a draft off the baseline) or
   `nodes/node_<parent>/src` (improve/debug). Your starting pipeline.
 - **target node dir** `comps/<slug>/nodes/node_NNNN/` — where everything you
-  write goes. `node.md` already exists with an unchecked lifecycle.
+  write goes. `node.md` already exists at `stage: proposed` with its `## plan`.
 - **the one-line atomic change** + the metric & direction.
 
 Resolve `SLUG`, `NNNN`, and `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` from the inputs
@@ -94,8 +94,8 @@ header style. Then the script, run from repo root via
        f"SHUFFLED-LABEL CONTROL FAILED shuffled_cv={shuffled_cv:.5f} -> VOID")
    print(f"shuffled-label OK shuffled_cv={shuffled_cv:.5f}")
    ```
-   A failed assertion is a **void** — your one change leaked. Stop, report it
-   buggy (do NOT tick boxes past `ran clean`).
+   A failed assertion is a **void** — your one change leaked. Stop, set
+   `status: buggy`, and report it (do NOT advance `stage` past `built`).
 
 Keep the script self-contained under `src/` (per-node isolation — no new shared
 files at repo root or `lib/`). If you add a `sys.path` line to import
@@ -118,20 +118,20 @@ echo "===== node_$NNNN DONE ====="
 tail -20 comps/$SLUG/nodes/node_$NNNN/train.log
 ```
 Scan `train.log` for `cv=` (success) vs `Traceback|Error|Killed|OOM`. A
-traceback ⇒ leave the node buggy, report it, tick nothing past the artifacts that
-exist. Silence is a bug: if nothing prints, add log lines and re-run.
+traceback ⇒ set `status: buggy`, report it, don't advance `stage` past `built`.
+Silence is a bug: if nothing prints, add log lines and re-run.
 
-## Step 4 — metrics.md (mean ± sem)
-Compute `mean = mean(per-fold scores)` and `sem = std(per_fold, ddof=1)/sqrt(k)`.
-Write `comps/$SLUG/nodes/node_$NNNN/metrics.md`:
-```markdown
-# node_NNNN metrics
-metric: <name> (<direction>)
-per-fold: [<f0>, <f1>, …]
-cv: <mean> ± <sem>   (oof_metric=<oof>)
-shuffled_cv: <shuffled_cv>   (baseline=<baseline_cv>, control=PASS)
-change: <one line>
-```
+## Step 4 — write the metrics into `node.md` frontmatter (mean ± sem)
+There is **no metrics.md** — the converged `node.md` is the one record. Compute
+`mean = mean(per-fold scores)` and `sem = std(per_fold, ddof=1)/sqrt(k)`, then
+fill these `node.md` frontmatter fields and advance `stage`:
+- `cv: <mean>`  ·  `sem: <sem>`  ·  `folds: [<f0>, <f1>, …]`
+- `baseline_cv: <baseline_cv>` (node_0000 baseline; 0.5 for AUC)
+- `shuffled_cv: <shuffled_cv>` (the control's collapsed CV)
+- `stage: scored`  ·  keep `status: running` (the reviewer decides valid/buggy).
+
+Do **not** touch `gates:` — the reviewer fills the gate booleans. Leave
+`gates.*`, `leak`, `lb`, `decided`, `submitted` untouched.
 
 ## Step 5 — validate the submission (schema gate, before it ever counts)
 ```bash
@@ -142,27 +142,28 @@ uv run tools/validate_submission.py \
 Exit 0 = schema OK. Exit 1 ⇒ fix `solution.py`'s output columns/id set/NaN and
 re-run Step 3 — a malformed file would waste a real submission slot.
 
-## Step 6 — tick node.md (artifact-then-tick) + return
-Tick each box in `node.md` **only after its named artifact exists** — never run a
-checkbox ahead of reality:
-- `[x] code written` → `src/solution.py` written
-- `[x] ran clean` → `train.log` has `cv=` and no traceback
-- `[x] cv computed` → `metrics.md` has `cv: <mean> ± <sem>`
-Leave `unit tests pass`, `leakage clean`, `decided`, `submitted` for the
-**kaggle-reviewer** and the main loop — you do NOT void or promote; you build and
-self-check. (You DO run the shuffled control as a build-time tripwire, but the
-reviewer's `tools/leakage_scan.py` pass is the official gate.) Update `metrics.md`
-+ `node.md` artifacts BEFORE writing any summary.
+## Step 6 — advance `node.md`'s `stage` (artifact-then-mark) + return
+Advance the `stage` field in `node.md` **only after its named artifact exists** —
+never set a stage ahead of reality:
+- `stage: built`  → `src/solution.py` written and `train.log` has `cv=` (no traceback)
+- `stage: scored` → `cv` + `sem` + `folds` written to `node.md` frontmatter (Step 4)
+Leave `stage: reviewed` / `decided` / `submitted`, the `gates:` booleans, `leak`,
+and promotion for the **kaggle-reviewer** and the main loop — you do NOT void or
+promote; you build and self-check. (You DO run the shuffled control as a
+build-time tripwire and write `shuffled_cv`, but the reviewer's
+`tools/leakage_scan.py` pass is the official gate.) Write the `node.md` fields +
+`stage` BEFORE writing any summary.
 
 ## Return to the caller (concise)
 Report, with absolute or repo-relative paths:
 - `cv=<mean> ± <sem>` and the per-fold scores;
 - shuffled-label control PASS/FAIL (`shuffled_cv` vs baseline);
 - submission validation result (OK / problems);
-- paths: `src/solution.py`, `train.log`, `metrics.md`, `submission.csv`,
+- paths: `src/solution.py`, `train.log`, `node.md`, `submission.csv`,
   `src/features.txt`;
-- node status you leave it in: clean-built (ready for review) | **buggy**
-  (traceback or control failed — with the one-line reason).
+- the `stage` + `status` you leave the node in: `stage: scored` / clean-built
+  (ready for review) | `status: buggy` (traceback or control failed — with the
+  one-line reason).
 
 ## Invariants (do not negotiate)
 - ONE atomic change vs the parent; nothing else differs.
@@ -171,6 +172,6 @@ Report, with absolute or repo-relative paths:
 - Per-node isolation — all new code lives under this node's `src/`.
 - All scripts run `uv run`; all dates from `date -u`; reusable code stays in
   `tools/`.
-- Artifact-then-tick — a checkbox never precedes its artifact.
+- Artifact-then-mark — a `stage` advance never precedes its artifact.
 - A failed shuffled control or a traceback ⇒ buggy, CV does not count; you report
   it, you never promote.

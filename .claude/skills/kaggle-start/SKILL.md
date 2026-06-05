@@ -25,8 +25,9 @@ If `$SLUG` is empty or still contains a scheme, ask the human for the plain slug
 and stop.
 
 **Resume check.** If `$COMP/progress.md` already exists, this comp was started
-before — read it, resume at the first unchecked box, do NOT re-scaffold. Only
-continue below if it is absent.
+before — read it, resume at the first unticked stage (and if experiments exist,
+read `graph.md` for the node map; a `running` node resumes from its `stage`
+field). Do NOT re-scaffold. Only continue below if it is absent.
 
 ## 1 · scaffold comps/<slug>/
 
@@ -41,8 +42,28 @@ mkdir -p "$COMP/data" "$COMP/champion"
 Create these files. Touch the empty append-only logs first:
 
 ```bash
-: > "$COMP/journal.md"; : > "$COMP/submissions.md"; : > "$COMP/tree.md"
+: > "$COMP/journal.md"; : > "$COMP/submissions.md"
 ```
+
+`graph.md` — THE MAP, scaffolded as an empty graph (a header line, a Mermaid block
+with just the `root`, and an empty `## nodes` table; downstream stages add nodes):
+
+````markdown
+# <slug> — experiments
+metric: <m> (<dir>) · champion: none · updated <TODAY>
+
+```mermaid
+graph LR
+    root
+```
+
+## nodes
+| node | what it is | cv | lb | status | detail |
+|------|------------|----|----|--------|--------|
+````
+
+Use `<m>`/`<dir>` from `spec.md` once written (leave as placeholders if scaffolding
+before spec; the next stage to add a node fills them in).
 
 `config.md` — autonomy dial defaults to interactive:
 
@@ -76,7 +97,8 @@ today (UTC): <TODAY>   submissions: 0/5 (resets 00:00 UTC)   deadline: <tbd from
 ```
 
 Append the first journal line (timestamped, one line per event); leave
-`submissions.md` and `tree.md` empty (downstream stages own them):
+`submissions.md` empty and `graph.md` at its empty-map scaffold (downstream stages
+add nodes):
 
 ```bash
 printf '%s  bootstrap comps/%s  (autonomy=interactive)\n' "$NOW" "$SLUG" >> "$COMP/journal.md"
@@ -226,9 +248,10 @@ metric/direction/columns) and re-render. On approval, tick `understand` in
 ## 6 · TOOLKIT Decision Card (gated)
 
 Propose 3–5 model families / libraries keyed off `task_type`. These **seed the
-tree's root branches** (CLAUDE.md "Tree semantics" — each family is its own
-branch, e.g. "LightGBM on lag features" vs "Darts"). Keep ≥2 structurally
-different families so the search can pivot later. Suggested seeds by task_type:
+graph's root drafts** (CLAUDE.md "Experiment graph" — each family is its own
+`draft` off `root`, e.g. "LightGBM on lag features" vs "Darts"). Keep ≥2
+structurally different families so the search can pivot later. Suggested seeds by
+task_type:
 
 - **regression / tabular** → LightGBM, XGBoost, CatBoost, ridge/elasticnet baseline.
 - **classification_binary/multiclass** → LightGBM/XGBoost, CatBoost, logistic-reg baseline, (TabNet if rich).
@@ -243,10 +266,10 @@ pin modelling libs globally (CLAUDE.md hard rule #1).
 
 ```
 📋 toolkit
-What's going on:   picking the model families to seed the solution tree's branches.
-Found / propose:   • branch A: <family> — <one line why it fits <task_type>>
-                   • branch B: <family> — <one line>
-                   • branch C: <family> — <one line>
+What's going on:   picking the model families to seed the experiment graph's root drafts.
+Found / propose:   • draft A: <family> — <one line why it fits <task_type>>
+                   • draft B: <family> — <one line>
+                   • draft C: <family> — <one line>
                    • baseline: <dumb baseline for /kaggle-baseline>
 Why:               keeping ≥2 different families alive lets the search pivot, not just tune.
 Cost:              ~0 now · deps added per-node with `uv add` when first used
