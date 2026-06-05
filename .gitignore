@@ -47,3 +47,6 @@ __pycache__/
 *.env
 kaggle.json
 .kaggle/
+
+# 6) ...but the credential TEMPLATE ships (no secrets in it). Last so it beats `.env.*`.
+!.env.example

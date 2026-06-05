@@ -343,7 +343,8 @@ don't retry around them:
 
 - **Auth:** set `KAGGLE_USERNAME` / `KAGGLE_KEY` in the env *before* any kaggle
   call (the client authenticates at import; env vars also dodge the chmod-600
-  warning). `tools/kaggle_io.py` checks this and fails with a clear message.
+  warning). `tools/kaggle_io.py` checks this and fails with a clear message. Creds live in `.env` (copy
+  `.env.example`); export them, or run tools with `uv run --env-file .env`.
 - **403 on download/submit means "rules not accepted / unverified," NOT bad
   creds** — the #1 misdiagnosis. `kaggle_io.py classify-error` maps it.
 - **429** → exponential backoff (handled in `kaggle_io.py`); never tight-poll.

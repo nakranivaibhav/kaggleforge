@@ -14,7 +14,7 @@ features, the models — is **bootstrapped per competition** into `comps/<slug>/
 never pinned globally.
 
 [`CLAUDE.md`](CLAUDE.md) is the full playbook (autonomy dial, Decision Card
-format, stage flow, tree semantics, leakage discipline, resume model, budget
+format, stage flow, graph semantics, leakage discipline, resume model, budget
 rules). This README is the practical front door.
 
 ---
@@ -22,20 +22,27 @@ rules). This README is the practical front door.
 ## 1. One-time setup
 
 ```bash
-uv sync                      # install the tools/ deps (pandas, numpy, sklearn)
-uv add kaggle                # the Kaggle CLI, invoked via subprocess by tools/kaggle_io.py
+uv sync                 # install the tools/ deps (pandas, numpy, sklearn)
+uv add kaggle           # the Kaggle CLI, used by tools/kaggle_io.py
 
-# Kaggle auth — set BEFORE any kaggle call (the client authenticates at import;
-# env vars also dodge the chmod-600 ~/.kaggle/kaggle.json warning).
-export KAGGLE_USERNAME=<your-username>
-export KAGGLE_KEY=<your-api-key>          # from kaggle.com → Settings → Create New Token
+cp .env.example .env     # then open .env and paste in your Kaggle creds
 ```
 
-Sanity-check auth and the budget reader before you start:
+Your **`.env`** (git-ignored, never committed) holds two values from
+kaggle.com → **Settings → "Create New Token"**:
+
+```
+KAGGLE_USERNAME=your-handle
+KAGGLE_KEY=your-api-key
+```
+
+Load it before running — export into your shell, or pass it to `uv`:
 
 ```bash
-uv run tools/kaggle_io.py --selftest
+export $(grep -v '^#' .env | xargs)                    # load creds into the shell, OR
+uv run --env-file .env tools/kaggle_io.py --selftest   # load per-command
 ```
+`--selftest` checks auth handling + the budget reader.
 
 ### Two human gates that cannot be automated
 
@@ -65,7 +72,7 @@ single stage by hand.
 /kaggle-eda                               # stage 1 — understand + clean the data
 /kaggle-validate                          # stage 2 — freeze the CV (folds.json) + holdout
 /kaggle-baseline                          # stage 3 — dumb baseline → first submission → champion/
-/kaggle-experiment                        # stage 4 — the tree loop: propose → develop → review → score → decide
+/kaggle-experiment                        # stage 4 — the experiment loop: propose → develop → review → score → decide
 ```
 
 Helpers, any time:
