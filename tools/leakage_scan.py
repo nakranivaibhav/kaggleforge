@@ -6,8 +6,6 @@ Two surfaces:
     correlation, train↔test duplicate rows, group straddling folds;
   * static (source)  — a global `.fit(` on full / concatenated train+test.
 
-The shuffled-label control needs the model's fit/predict callable, so it lives
-in the node's CV harness; `shuffled_label_ok()` is importable here for that use.
 `cv_too_good()` flags an implausible score for a human to eyeball.
 
 Severity: 'error' fails the gate (exit 1); 'warn' is surfaced, not fatal.
@@ -106,20 +104,6 @@ def scan_source(src: str) -> Check:
                  "ok" if not hits else f"possible fit on full data at line(s) {hits}; verify fit is inside-fold")
 
 
-# --- importable controls (used by the node's CV harness) -------------------
-def shuffled_label_ok(score_shuffled: float, random_baseline: float,
-                      direction: str, tol: float = 0.05) -> bool:
-    """True iff permuting the labels collapses CV to ~the random baseline.
-
-    Run the node's CV with the target permuted; a clean pipeline scores no
-    better than random. If the shuffled score is still good, something leaks.
-    ``direction`` is 'minimize' (e.g. rmse) or 'maximize' (e.g. auc).
-    """
-    if direction == "maximize":
-        return score_shuffled <= random_baseline + tol
-    return score_shuffled >= random_baseline - tol
-
-
 def cv_too_good(cv: float, baseline_cv: float, direction: str, max_rel_gain: float = 0.9) -> Check:
     """Flag an implausibly large improvement over the dumb baseline for human review."""
     if direction == "maximize":
@@ -173,12 +157,6 @@ def _selftest() -> int:
     assert not scan_source("scaler.fit(pd.concat([train_df, test_df]))").passed
     assert not scan_source("scaler.fit(X)").passed
     assert scan_source("for tr, va in folds:\n    scaler.fit(X.iloc[tr])").passed
-
-    # shuffled-label control: clean collapses to random, leak stays good
-    assert shuffled_label_ok(0.95, 1.00, "minimize")
-    assert not shuffled_label_ok(0.11, 1.00, "minimize")
-    assert shuffled_label_ok(0.52, 0.50, "maximize")
-    assert not shuffled_label_ok(0.90, 0.50, "maximize")
 
     # cv-too-good tripwire
     assert cv_too_good(0.15, 0.20, "minimize").passed

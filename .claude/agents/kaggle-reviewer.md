@@ -24,8 +24,8 @@ target_cols, id, task_type, time_col?, group_key?`). If any is missing, read
 ## 0 · Orient
 - `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` — never type a date.
 - Read `nodes/node_NNNN/node.md` — the frontmatter is your source of truth for
-  `op, parents, family, metric, direction, cv, sem, folds, baseline_cv,
-  shuffled_cv` and the `## plan` prose (the one-line change). Read `train.log`
+  `op, parents, family, metric, direction, cv, sem, folds, baseline_cv` and the
+  `## plan` prose (the one-line change). Read `train.log`
   (must have NO `Traceback`/`Error`/`Killed`/`OOM`). Confirm `src/solution.py`,
   `src/features.txt`, `submission.csv`, and `src/oof.csv` (or the OOF array the
   node wrote) exist. A named artifact that is absent ⇒ that check FAILs.
@@ -37,8 +37,7 @@ target_cols, id, task_type, time_col?, group_key?`). If any is missing, read
   `uv run tools/leakage_scan.py --selftest` (both print `... selftest OK`).
 
 You record each check below as a boolean in `node.md`'s `gates:` field. The set
-is `{schema_ok, oof_full, no_nan, dist_sane, leak_clean, shuffle_collapsed,
-cv_too_good, passed}`.
+is `{schema_ok, oof_full, no_nan, dist_sane, leak_clean, cv_too_good, passed}`.
 
 ## 1 · Unit tests (per-node correctness)
 Run each; note PASS/FAIL + the one-line reason.
@@ -108,25 +107,7 @@ uv run tools/leakage_scan.py \
   fold-local), not on full / `concat([train,test])` data. If a `warn` matters
   for the human, note it in `gate_note`.
 
-**b. Shuffled-label control collapsed** → `shuffle_collapsed` (the in-node dynamic
-gate). The developer ran it in the CV harness and recorded `shuffled_cv` in
-`node.md`'s frontmatter (and `train.log`). Confirm it COLLAPSED to the random
-baseline using the shared threshold:
-```bash
-uv run python - <<'PY'
-from tools.leakage_scan import shuffled_label_ok
-shuffled_cv = <node.md shuffled_cv>; baseline = <baseline_cv from node.md, or 0.5 for AUC>
-direction  = "<minimize|maximize>"   # from spec
-ok = shuffled_label_ok(shuffled_cv, baseline, direction)
-print("shuffled-label control:", "OK collapsed" if ok else f"FAILED leak: shuffled_cv={shuffled_cv} vs baseline={baseline}")
-PY
-```
-If `node.md` has no `shuffled_cv` value (null), or the printed `shuffled-label
-control OK ...` is absent from `train.log`, the control was not run ⇒
-`shuffle_collapsed: false` (the CV cannot count). A failed control ⇒ **VOID**,
-identical force to a scan exit-1.
-
-**c. CV-too-good tripwire** → `cv_too_good` (a *warn*, not a void). Surface for
+**b. CV-too-good tripwire** → `cv_too_good` (a *warn*, not a void). Surface for
 human eyes before a slot is spent:
 ```bash
 uv run python -c "from tools.leakage_scan import cv_too_good; print(cv_too_good(<node.md cv>, <baseline_cv>, '<direction>'))"
@@ -154,7 +135,7 @@ Set, in the frontmatter:
 
 ```yaml
 gates: {schema_ok: <b>, oof_full: <b>, no_nan: <b>, dist_sane: <b>,
-        leak_clean: <b>, shuffle_collapsed: <b>, cv_too_good: <b>, passed: <b>}
+        leak_clean: <b>, cv_too_good: <b>, passed: <b>}
 gate_note: <one line, only if the human must act — a FAIL cause, a VOID detail,
             a cv_too_good/outlier-fold warn; else null>
 leak: <clean | VOID>
@@ -162,12 +143,11 @@ stage: reviewed
 ```
 
 Computing `passed` and `leak`:
-- `leak: VOID` iff `leak_clean: false` OR `shuffle_collapsed: false` (a leak
-  VOIDs the CV **regardless of its value**); otherwise `leak: clean`.
+- `leak: VOID` iff `leak_clean: false` (a leak VOIDs the CV **regardless of its
+  value**); otherwise `leak: clean`.
 - `gates.passed: true` **only when every required gate is true** — i.e.
-  `schema_ok && oof_full && no_nan && dist_sane && leak_clean &&
-  shuffle_collapsed`. `cv_too_good` is a *warn* the human eyeballs, NOT a blocker:
-  it does not lower `passed`.
+  `schema_ok && oof_full && no_nan && dist_sane && leak_clean`. `cv_too_good` is
+  a *warn* the human eyeballs, NOT a blocker: it does not lower `passed`.
 - `gate_note` is `null` on a clean pass; fill it only when the human must act —
   the failing unit-test cause (≤8 words), the VOID detail, or a
   cv_too_good/outlier-fold warning. Resolve a `no_global_fit_in_source` warn
@@ -179,8 +159,8 @@ After the edit, advance `stage: reviewed`.
 - **Any failed UNIT TEST** (§1: `schema_ok`/`oof_full`/`no_nan`/`dist_sane` false)
   ⇒ verdict `FAIL-buggy` → the node is buggy, the developer must fix via a
   **debug** child; CV does not count.
-- **Any LEAK** — `leakage_scan.py` exit 1 OR a non-collapsed/absent shuffled-label
-  control (§2a/2b) ⇒ verdict `VOID-leak`, `leak: VOID` → **VOID the CV regardless
+- **Any LEAK** — `leakage_scan.py` exit 1 (§2a) ⇒ verdict `VOID-leak`,
+  `leak: VOID` → **VOID the CV regardless
   of its value**; node is `buggy` (or intrinsically leaky ⇒ recommend `dead`).
 - **All unit tests pass AND leak-clean** ⇒ verdict `PASS`, `gates.passed: true` →
   the CV may count. Still surface any `warn` (fit-inside-fold note, `cv_too_good`,

@@ -46,8 +46,9 @@ fi
 ```
 today (UTC): <today>   submissions: <used>/5 (resets 00:00 UTC)   deadline: <dl|n/a> (<days_left|?> left)
 ```
-If `days_left` is small (≤ ~2), add one line: "Deadline near — next round should be
-final-ensemble / submit, not new drafts."
+If `days_left` is small (≤ ~2), add one line: "Deadline near — consider running
+`/kaggle-final` when you're ready." Surface it; never switch to final yourself —
+`/kaggle-final` is user-triggered only, so keep running experiments until asked.
 
 ## 2 · Current stage (from progress.md)
 Read `$C/progress.md`. The stage checkboxes are the macro sequence

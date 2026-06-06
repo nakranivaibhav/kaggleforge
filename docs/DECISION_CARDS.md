@@ -246,9 +246,9 @@ What "waiting" vs "proceeding" means on the card:
 Important structural fact (from `CLAUDE.md`): **neither subagents nor the
 workflow can pause for a human — only the main session can.** So every gated
 stage runs in the main session via its skill; only the non-gated experiment grind
-is handed to subagents / `experiment-loop.js`. In `auto_except_submit` the
-workflow *queues* the best node and the main session asks before submitting; in
-`full_auto` the workflow submits within budget on its own.
+is handed to subagents / the `propose-loop` workflow. The main session orchestrates
+propose → register → build every proposal → gate → decide; in `auto_except_submit`
+it asks the human before submitting; in `full_auto` it submits within budget.
 
 ### Flipping the dial by voice
 

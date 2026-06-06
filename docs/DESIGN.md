@@ -2,8 +2,8 @@
 
 This is the *why* behind the playbook. The standing contract is `CLAUDE.md`; the
 procedures are the skills in `.claude/skills/`; the workers are the subagents in
-`.claude/agents/`; the auto-mode fan-out is `.claude/workflows/experiment-loop.js`;
-the reusable code is in `tools/`. This file explains the research lineage we
+`.claude/agents/`; the proposer↔critic refinement loop is
+`.claude/workflows/propose-loop.js`; the reusable code is in `tools/`. This file explains the research lineage we
 borrowed from, why we run it as markdown inside Claude Code, the graph/gate/
 validation/resume models, the mapping from our sibling neural-ring-detector loop,
 and the honest expectations.
@@ -34,10 +34,12 @@ search***. Each node is a complete solution; three operators grow the tree —
 The decisive idea: **history lives in the tree, not the context window**. The
 agent never has to re-summarise its past; the tree *is* the memory, and a node's
 parent edge records exactly what was tried. On MLE-bench, AIDE earned **~4× more
-medals than the best linear (phase-pipeline) agent**. We adopted the search
-wholesale (§3) — generalised from AIDE's tree to a **DAG** so a `combine` node can
-merge several parents — and run it as a *supervised* single search rather than the
-unbounded autonomous one.
+medals than the best linear (phase-pipeline) agent**. We took the **operators +
+tree-as-memory** (§3), generalised from AIDE's tree to a **DAG** so a `combine` node
+can merge several parents. We did **not** keep AIDE's *greedy best-first
+expansion*: instead a `kaggle-proposer` agent proposes a small batch each round and
+the orchestrator builds **every** confirmed proposal — simpler to supervise, and the
+proposer (not a search controller) carries the policy for what to try next.
 
 **MLE-bench (arXiv:2410.07095)** — the **medal yardstick**: 75 real Kaggle
 competitions, scored against the actual private leaderboards, reporting
@@ -85,7 +87,7 @@ runtime. Four Claude Code primitives map cleanly onto four roles:
 | **skill** (`.claude/skills/*/SKILL.md`) | a **procedure** the main session runs at a gate | `/kaggle-validate` freezes the CV |
 | **subagent** (`.claude/agents/*.md`) | an **isolated worker** with fresh context | `kaggle-developer` builds one node |
 | **CLAUDE.md** | the **standing rules** every actor obeys | leakage voids a score; one atomic change/node |
-| **workflow** (`.claude/workflows/experiment-loop.js`) | the **fan-out** that parallelises the grind | `experiment-loop` expands `width` nodes/round |
+| **workflow** (`.claude/workflows/propose-loop.js`) | a **deterministic agent loop** | `propose-loop` refines N proposals (proposer↔critic) |
 
 **The key constraint that shapes everything: neither subagents nor the workflow
 can pause for a human — only the main session can** (CLAUDE.md, "Operating mode").
@@ -95,16 +97,16 @@ So the architecture is **"gate the ends, auto the middle"**:
 - Every **gate** (`understand · toolkit · eda · validation · experiment_plan ·
   submit`) lives in a **skill in the main session**, because only there can we
   render a Decision Card and *wait*.
-- The **experiment grind** — propose → develop → review → score — is the only
-  part with no inherent need for a human mid-step, so it (and only it) is
-  delegated to subagents and the workflow.
+- The **experiment grind** — propose → register → build every proposal → gate →
+  decide — has no inherent need for a human mid-step, so it is delegated to
+  subagents (and the `propose-loop` refinement workflow), sequenced by the main
+  session as orchestrator.
 
 That is why `understand` and `submit` stay human except in `full_auto`: a wrong
 reading of the metric poisons every downstream CV, and a real submission is the
-one irreversible, rate-limited, public action. The workflow reflects this — in
-`auto_except_submit` it *queues* the best node and the main session asks before
-spending a slot; in `full_auto` a submit agent may spend one within budget
-(see `experiment-loop.js` meta and the Submit phase).
+one irreversible, rate-limited, public action. The orchestrator reflects this — in
+`auto_except_submit` it asks the human before spending a slot; in `full_auto` it
+submits within budget.
 
 ---
 
@@ -144,8 +146,22 @@ deepest ancestor(s) whose work it keeps** — most nodes have one parent, but a
 (≤5 attempts; regenerate from scratch after 3 fails; prune to `dead` after 5) →
 else improve the best valid node with exactly one atomic change, A/B'd against its
 parent and rejected on CV regress → else combine 2+ valid, de-correlated nodes when
-a blend's OOF beats the best single. The workflow's planner applies the same policy
-across up to `width` independent nodes per round.
+a blend's OOF beats the best single. The **`kaggle-proposer`** agent applies this
+policy to draft N independent proposals each round; the **`kaggle-proposal-reviewer`**
+critiques them (the `propose-loop` workflow runs that refinement); then the
+orchestrator builds **every** confirmed proposal — there is no best-first
+frontier-expansion controller that picks which to expand.
+
+**Data lineage (`data.md`).** `graph.md` is *experiment* lineage (node → parent);
+`data.md` is its *data* companion — the engineered feature-sets (`raw → base → fs_*`)
+and which nodes consume each, with every node linking back via its `uses_data` field.
+The load-bearing part is the per-set **leak-safety class**: `stateless` (row-wise, no
+fit — reusable as-is) vs `fit_in_fold` (a fitted transform or a **cross-row** stat —
+target-encode, scaler, kNN density, group aggregate — built inside the train fold
+only). This is not just bookkeeping: a *label-free* cross-row feature fit on the
+whole train slips past the shuffled-label control yet still leaks, so the class is
+what catches it. The proposer reuses a feature-set before re-engineering one and the
+developer obeys the class; the leakage suite still enforces the result.
 
 ---
 
@@ -244,8 +260,8 @@ with zero in-context memory. Two rules make that safe.
   *computed* at read time (`grep -c "^| $(date -u +%F)" …submissions.md`, or
   `uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md`), so it
   can't drift across a resume. `progress.md`'s header is regenerated on read;
-  `days_left = deadline − today`; when it shrinks, the loop switches to final
-  ensemble.
+  `days_left = deadline − today`; when it shrinks, it's surfaced but the loop keeps
+  experimenting — `/kaggle-final` is user-triggered only, never auto-started.
 
 The canonical restart path is `/kaggle-status`: read `progress.md` → find the
 in-progress stage → if experiments, read the `graph.md` map to rebuild the

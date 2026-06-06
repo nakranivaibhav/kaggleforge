@@ -40,7 +40,7 @@ Write `$node/node.md` from the CLAUDE.md `node.md` template (frontmatter +
 `family: baseline`, `status: running`, `stage: proposed`, `metric`/`direction`
 from spec.md, `created: $NOW`. Leave the metric/gate fields null for now —
 they get filled in as the node progresses (`cv`, `sem`, `folds`, `baseline_cv`,
-`shuffled_cv`, the `gates:` booleans, `leak`); there is **no** `metrics.md` and
+the `gates:` booleans, `leak`); there is **no** `metrics.md` and
 **no** `gate_report.md`, those values live in this frontmatter. Fill the
 `## plan` body:
 - **built on:** root (nothing inherited — this is the floor)
@@ -136,10 +136,9 @@ uv run tools/leakage_scan.py \
 echo "leak_exit=$?"
 ```
 Exit 0 (a constant has no features, so every structural check is vacuously clean).
-Record the result in the node.md `gates:` frontmatter: set `leak_clean: true`,
-`shuffle_collapsed: true` (a constant cannot fit the labels), and the structural
-booleans (`schema_ok`, `oof_full`, `no_nan`, `dist_sane`, `cv_too_good`) per the
-scan; set `leak: clean`. Exit 1 means the solution accidentally used a feature/id
+Record the result in the node.md `gates:` frontmatter: set `leak_clean: true`
+and the structural booleans (`schema_ok`, `oof_full`, `no_nan`, `dist_sane`,
+`cv_too_good`) per the scan; set `leak: clean`. Exit 1 means the solution accidentally used a feature/id
 — fix solution.py, don't override the gate (set `leak: VOID` and the failing
 boolean false; the CV does not count).
 

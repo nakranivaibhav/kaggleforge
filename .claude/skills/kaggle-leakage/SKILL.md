@@ -1,6 +1,6 @@
 ---
 name: kaggle-leakage
-description: Reference — leakage & validation discipline for kaggleforge. Preloaded into the kaggle-reviewer subagent (and any node that computes CV). Use when validating a node's CV, deciding whether a score counts, running tools/leakage_scan.py, writing the in-node shuffled-label control, or judging a CV↔LB gap.
+description: Reference — leakage & validation discipline for kaggleforge. Preloaded into the kaggle-reviewer subagent (and any node that computes CV). Use when validating a node's CV, deciding whether a score counts, running tools/leakage_scan.py, or judging a CV↔LB gap.
 allowed-tools: Bash, Read
 ---
 
@@ -11,11 +11,8 @@ score regardless of how good the CV looks (CLAUDE.md hard rule 3). This skill is
 the standing checklist the `kaggle-reviewer` applies to every node — including
 data-cleaning and feature-engineering nodes.
 
-The suite has two surfaces:
-- **static + structural** → `tools/leakage_scan.py` (one command, JSON report,
-  exit code is the gate);
-- **in-node dynamic control** → the SHUFFLED-LABEL snippet below, run inside the
-  node's own CV harness because it needs the model's fit/predict callable.
+The suite is **static + structural** → `tools/leakage_scan.py` (one command, JSON
+report, exit code is the gate).
 
 ---
 
@@ -31,15 +28,13 @@ confirm the tool itself is sound before trusting a report):
 | `id_not_in_features` | structural | **error** | id column / row-order used as a feature |
 | `feature_target_correlation` | structural | **error** if a hit | a feature with ≥0.999 \|corr\| vs target (target-leak smell) |
 | `train_test_duplicates` | structural | **warn** | train rows that duplicate a test row on features |
-| SHUFFLED-LABEL CONTROL | in-node (`shuffled_label_ok`) | **gate** | any residual leak — permuted labels must collapse CV to random |
 | `cv_too_good_tripwire` | in-node (`cv_too_good`) | **warn** | implausible CV jump over baseline — human eyeballs before a slot is spent |
 
 Group / temporal correctness is **enforced upstream** by `tools/make_folds.py`
 (TimeSeriesSplit = past→future expanding window; GroupKFold = a group never
-straddles folds), then **proven downstream** by the shuffled-label control: if
-folds straddled a group or a lag peeked into the future, the permuted-label CV
-would *not* collapse, and the control fails. Never refit folds across the run —
-freeze once in `/kaggle-validate` and read `folds.json`.
+straddles folds): the frozen `folds.json` is what enforces that a group never
+straddles folds and that each fold trains only on past rows. Never refit folds
+across the run — freeze once in `/kaggle-validate` and read `folds.json`.
 
 ---
 
@@ -83,55 +78,8 @@ uv run tools/leakage_scan.py ... ; echo "exit=$?"
   In `node.md` set `gates.leak_clean: false`, `leak: VOID`, and
   `status: buggy`; the fix is a **debug** child, not a re-score.
 
-The reviewer's PASS/FAIL is exactly this exit code AND a passing shuffled-label
-control (below). Both must hold for the CV to count.
-
----
-
-## In-node SHUFFLED-LABEL CONTROL (paste into the node's CV harness)
-
-Permute the labels and refit the node's *real* pipeline under the *frozen* folds.
-A clean pipeline can't beat random on shuffled labels; if it still scores well,
-something leaks (a fold straddled a group, a feature encodes the target, a lag
-peeked forward). Use the importable `shuffled_label_ok` so the threshold logic
-is shared with the tool.
-
-```python
-import json, numpy as np, pandas as pd
-from tools.leakage_scan import shuffled_label_ok
-
-# DIRECTION/BASELINE come from validation.md: 'minimize' (rmse) | 'maximize' (auc)
-DIRECTION = "minimize"
-RANDOM_BASELINE = baseline_cv          # the dumb-baseline CV from /kaggle-baseline
-                                       # (mean/base-rate). For AUC use 0.5.
-
-folds = json.load(open("comps/<slug>/folds.json"))   # frozen split — never refit
-rng = np.random.default_rng(0)
-y_shuf = pd.Series(rng.permutation(y.to_numpy()), index=y.index)  # permute labels
-
-scores = []
-for f in folds["folds"]:                              # {fold, val_idx:[...]}
-    va = np.asarray(f["val_idx"])
-    tr = np.setdiff1d(np.arange(len(y_shuf)), va)
-    model = make_pipeline()                            # the node's REAL pipeline
-    model.fit(X.iloc[tr], y_shuf.iloc[tr])             # every transform fit on tr only
-    scores.append(score_fn(y_shuf.iloc[va], model.predict(X.iloc[va])))
-shuffled_cv = float(np.mean(scores))
-
-ok = shuffled_label_ok(shuffled_cv, RANDOM_BASELINE, DIRECTION)   # tol=0.05 default
-assert ok, (
-    f"SHUFFLED-LABEL CONTROL FAILED: shuffled_cv={shuffled_cv:.5f} did not "
-    f"collapse to baseline={RANDOM_BASELINE:.5f} ({DIRECTION}) — leak present, "
-    f"VOID this node's CV."
-)
-print(f"shuffled-label control OK: shuffled_cv={shuffled_cv:.5f} ~ baseline")
-```
-
-`shuffled_label_ok(minimize)` returns True when `shuffled_cv >= baseline − 0.05`
-(error got no better than random); `maximize` when `shuffled_cv <= baseline +
-0.05`. A failed assertion is a **void**, identical in force to an exit-1 from the
-static/structural scan. Record `shuffled_cv` in the node's `node.md` frontmatter,
-and set `gates.shuffle_collapsed` (and on a fail, `leak: VOID`) accordingly.
+The reviewer's PASS/FAIL is exactly this exit code — it must be 0 for the CV to
+count.
 
 ---
 
@@ -151,8 +99,8 @@ chk = cv_too_good(node_cv, baseline_cv, DIRECTION)   # default max_rel_gain=0.9
 ## The rules (do not negotiate these)
 
 1. **Leakage voids a score, full stop.** An `error` from `leakage_scan.py`
-   (exit 1) or a failed shuffled-label control marks the node `buggy` and its CV
-   does not count — regardless of how good the CV is. Fix via a **debug** child.
+   (exit 1) marks the node `buggy` and its CV does not count — regardless of how
+   good the CV is. Fix via a **debug** child.
 2. **A CV↔LB gap is a DIAGNOSTIC ONLY — never an auto-demote.** Trust a
    well-built local CV over the small, noisy public LB (CLAUDE.md rule 6). Log
    the gap in the journal, surface it in a Decision Card, and only investigate

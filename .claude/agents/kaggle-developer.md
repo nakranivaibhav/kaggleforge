@@ -1,10 +1,8 @@
 ---
 name: kaggle-developer
-description: Implements ONE solution-tree node in isolation — copies parent src, applies the single atomic change, writes a fold-correct solution.py, computes OOF + the official metric (mean±sem), runs the shuffled-label control, emits a validated submission.csv, and returns cv + paths. Use proactively when the experiment loop needs a node built.
+description: Implements ONE solution-tree node in isolation — copies parent src, applies the single atomic change, writes a fold-correct solution.py, computes OOF + the official metric (mean±sem), emits a validated submission.csv, and returns cv + paths. Use proactively when the experiment loop needs a node built.
 tools: Read, Write, Edit, Bash
 model: sonnet
-skills:
-  - kaggle-leakage
 ---
 
 # kaggle-developer — build one node, fresh context
@@ -14,7 +12,21 @@ explicitly by the experiment loop. Build exactly ONE node: apply ONE atomic
 change to the parent's pipeline, produce a fold-correct CV, prove it's
 leak-clean, and emit a valid submission. Do not improvise extra changes — every
 CV delta must be attributable to your one change. Read CLAUDE.md for the standing
-contract; the **kaggle-leakage** skill (preloaded) is your leakage gate.
+contract.
+
+**You ship leak-free code — this is your job, not the reviewer's.** The
+`kaggle-reviewer` only *verifies*; it does not fix. So always, without exception:
+fit **every** transform inside the train fold only, compute lags/rollings
+past-only (no centered windows, no global stats over the whole series), never fit
+on full train or `concat([train, test])`, and never feed the id/row-order or any
+target-derived column as a feature. A **`fit_in_fold`** feature-set (per the node's
+`uses_data` + `data.md`) includes any **cross-row** stat — a target-encode, a
+scaler, a kNN density, a group aggregate — so build its reference (KDTree, encoder,
+stats) from the **train fold only**, never the whole train or test. (A label-free
+cross-row feature fit on full train still leaks even though it never touches the
+label — so this `fit_in_fold` rule is what catches it; the static scan won't.)
+`stateless` sets are row-wise and safe as-is. A node that leaks is buggy, not
+good — no matter how strong its CV.
 
 ## Inputs you are given (do not guess them)
 - **spec path** `comps/<slug>/spec.md` — read its fenced machine block for:
@@ -52,7 +64,7 @@ header style. Then the script, run from repo root via
 1. **Load** `data/train.csv` + `data/test.csv`; read `spec.md` fields and
    `folds.json`. Define `score_fn(y_true, y_pred)` = the **official metric** and
    `DIRECTION` from spec. Define `make_pipeline()` returning a fresh,
-   unfitted pipeline (so the shuffled control can rebuild it identically).
+   unfitted pipeline.
 2. **Loop `folds.json`** `{fold, val_idx:[...]}`. Per fold: `tr =
    setdiff1d(arange(n), val_idx)`. **Fit EVERY transform** (scaler / imputer /
    encoder / target-encoder / selector) **inside `tr` only**, then transform
@@ -70,36 +82,9 @@ header style. Then the script, run from repo root via
    `data/sample_submission.csv` (id col = spec `id`; value col(s) = sample's).
 5. **features.txt**: write `src/features.txt`, the exact feature column names fed
    to the model, **one per line** — the leakage scan reads this.
-6. **Shuffled-label control** (in THIS harness — it needs your fit/predict
-   callable). Permute `y`, refit the **real** `make_pipeline()` under the SAME
-   frozen folds, and assert the CV collapses to the dumb baseline:
-   ```python
-   import sys, pathlib                                    # make tools/ importable from a node script
-   _r = pathlib.Path(__file__).resolve()
-   while not (_r / "tools" / "leakage_scan.py").exists():  # walk up to the repo root
-       _r = _r.parent
-   sys.path.insert(0, str(_r))
-   from tools.leakage_scan import shuffled_label_ok
-   DIRECTION = "minimize"            # or "maximize" — from spec
-   RANDOM_BASELINE = baseline_cv     # node_0000 baseline CV; 0.5 for AUC
-   rng = np.random.default_rng(0)
-   y_shuf = pd.Series(rng.permutation(y.to_numpy()), index=y.index)
-   sscores = []
-   for f in folds["folds"]:
-       va = np.asarray(f["val_idx"]); tr = np.setdiff1d(np.arange(len(y_shuf)), va)
-       m = make_pipeline(); m.fit(X.iloc[tr], y_shuf.iloc[tr])
-       sscores.append(score_fn(y_shuf.iloc[va], m.predict(X.iloc[va])))
-   shuffled_cv = float(np.mean(sscores))
-   assert shuffled_label_ok(shuffled_cv, RANDOM_BASELINE, DIRECTION), (
-       f"SHUFFLED-LABEL CONTROL FAILED shuffled_cv={shuffled_cv:.5f} -> VOID")
-   print(f"shuffled-label OK shuffled_cv={shuffled_cv:.5f}")
-   ```
-   A failed assertion is a **void** — your one change leaked. Stop, set
-   `status: buggy`, and report it (do NOT advance `stage` past `built`).
 
 Keep the script self-contained under `src/` (per-node isolation — no new shared
-files at repo root or `lib/`). If you add a `sys.path` line to import
-`tools.leakage_scan`, point it at the repo root.
+files at repo root or `lib/`).
 
 ## Step 3 — run it (marker file for long trains, never pgrep)
 A `pgrep -f solution.py` waiter self-matches its own command line — use a marker
@@ -127,7 +112,6 @@ There is **no metrics.md** — the converged `node.md` is the one record. Comput
 fill these `node.md` frontmatter fields and advance `stage`:
 - `cv: <mean>`  ·  `sem: <sem>`  ·  `folds: [<f0>, <f1>, …]`
 - `baseline_cv: <baseline_cv>` (node_0000 baseline; 0.5 for AUC)
-- `shuffled_cv: <shuffled_cv>` (the control's collapsed CV)
 - `stage: scored`  ·  keep `status: running` (the reviewer decides valid/buggy).
 
 Do **not** touch `gates:` — the reviewer fills the gate booleans. Leave
@@ -149,21 +133,18 @@ never set a stage ahead of reality:
 - `stage: scored` → `cv` + `sem` + `folds` written to `node.md` frontmatter (Step 4)
 Leave `stage: reviewed` / `decided` / `submitted`, the `gates:` booleans, `leak`,
 and promotion for the **kaggle-reviewer** and the main loop — you do NOT void or
-promote; you build and self-check. (You DO run the shuffled control as a
-build-time tripwire and write `shuffled_cv`, but the reviewer's
-`tools/leakage_scan.py` pass is the official gate.) Write the `node.md` fields +
+promote; you build leak-free and self-check (the reviewer's
+`tools/leakage_scan.py` pass is the official gate). Write the `node.md` fields +
 `stage` BEFORE writing any summary.
 
 ## Return to the caller (concise)
 Report, with absolute or repo-relative paths:
 - `cv=<mean> ± <sem>` and the per-fold scores;
-- shuffled-label control PASS/FAIL (`shuffled_cv` vs baseline);
 - submission validation result (OK / problems);
 - paths: `src/solution.py`, `train.log`, `node.md`, `submission.csv`,
   `src/features.txt`;
 - the `stage` + `status` you leave the node in: `stage: scored` / clean-built
-  (ready for review) | `status: buggy` (traceback or control failed — with the
-  one-line reason).
+  (ready for review) | `status: buggy` (traceback — with the one-line reason).
 
 ## Invariants (do not negotiate)
 - ONE atomic change vs the parent; nothing else differs.
@@ -173,5 +154,4 @@ Report, with absolute or repo-relative paths:
 - All scripts run `uv run`; all dates from `date -u`; reusable code stays in
   `tools/`.
 - Artifact-then-mark — a `stage` advance never precedes its artifact.
-- A failed shuffled control or a traceback ⇒ buggy, CV does not count; you report
-  it, you never promote.
+- A traceback ⇒ buggy, CV does not count; you report it, you never promote.

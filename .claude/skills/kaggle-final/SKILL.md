@@ -1,6 +1,6 @@
 ---
 name: kaggle-final
-description: Deadline-triggered final ensemble + selection for a Kaggle competition. Picks the 2 entries to lock in for private scoring — the best-CV single pipeline and a CV-weighted blend of de-correlated champions/runners-up — gated by an oracle-complementarity check (only blend arms whose per-fold failures are disjoint). Use when the deadline is near (days_left small in progress.md), when /kaggle-experiment reports the deadline reached, or when the human says "final" / "finish" / "/kaggle-final".
+description: User-triggered final ensemble + selection for a Kaggle competition. Picks the 2 entries to lock in for private scoring — the best-CV single pipeline and a CV-weighted blend of de-correlated champions/runners-up — gated by an oracle-complementarity check (only blend arms whose per-fold failures are disjoint). Use ONLY when the user explicitly asks — "final" / "finish" / "/kaggle-final". Never trigger this yourself (not on a near deadline, not on thinning returns); until the user asks, keep running /kaggle-experiment.
 argument-hint: <slug>
 allowed-tools: Bash, Read, Write, Edit
 ---
@@ -15,14 +15,15 @@ trade a robust CV pick for a public-LB mirage (Hard rule 6).
 `<slug>` from `$1`. All paths `comps/<slug>/...`. Dates always `date -u`.
 
 ## 0 · Should we be here yet?
+**Only run this skill when the user explicitly asks for it.** The deadline is never
+a trigger — keep running `/kaggle-experiment` until the user says "final" /
+"finish". For context only, you may report the runway:
 ```bash
 slug=<slug>
 deadline=$(grep -E '^deadline:' comps/$slug/spec.md | awk '{print $2}')
 days_left=$(( ( $(date -u -d "$deadline" +%s) - $(date -u +%s) ) / 86400 ))
 echo "days_left=$days_left"
 ```
-Run this when `days_left` is small (≈≤1) or the human asks. If there's still
-runway, say so and stay in `/kaggle-experiment` — finals are cheap to defer.
 
 ## 1 · Assemble candidate arms
 From `graph.md`, take the champion plus the top valid nodes by CV (leak-clean

@@ -5,8 +5,8 @@ competition link; you take it from understanding the problem all the way to
 submissions, **pausing at the right moments** for the human and grinding
 autonomously in between. This file is the standing contract. The per-stage
 *procedures* live in skills (`.claude/skills/`), the parallel *workers* live in
-subagents (`.claude/agents/`), and the auto-mode fan-out lives in a workflow
-(`.claude/workflows/experiment-loop.js`).
+subagents (`.claude/agents/`), and the proposer↔critic refinement loop lives in a
+workflow (`.claude/workflows/propose-loop.js`).
 
 ---
 
@@ -28,8 +28,8 @@ the first unticked stage:
 2. **kaggle-eda** — data understanding + cleaning (code + unit tests) → `eda.md`       · gate: eda
 3. **kaggle-validate** — freeze `folds.json` + holdout → `validation.md`               · gate: validation
 4. **kaggle-baseline** — dumb baseline → first submission → champion                   · gate: submit
-5. **kaggle-experiment** — the experiment loop (one node/turn, or hand to `experiment-loop.js` on "go auto") · gates: experiment_plan, submit
-6. **kaggle-final** — near the deadline, lock the 2 finals                             · gate: submit
+5. **kaggle-experiment** — propose (proposer↔critic) → build EVERY proposal → gate → decide · gates: experiment_plan, submit
+6. **kaggle-final** — lock the 2 finals — **only when the user says so** (never auto-triggered) · gate: submit
 
 `kaggle-status` is read-only and available any time (it's also the resume entry).
 
@@ -43,6 +43,10 @@ the first unticked stage:
 - On a **fresh session**, FIRST read `comps/<slug>/progress.md` and resume from
   the first unticked stage — never restart completed stages.
 - One competition per `comps/<slug>/`; if several exist, ask which to work on.
+- **Never decide to finish.** `kaggle-final` runs **only when the user explicitly
+  asks for it** ("final" / "finish" / "/kaggle-final") — not the deadline, not
+  "returns are thinning," not any model judgement. Until then, keep running the
+  experiment loop. The deadline is information to surface, never a trigger.
 
 ---
 
@@ -122,9 +126,9 @@ non-gated experiment grind runs as subagents / the workflow.
 | 1 | `/kaggle-eda` | interactive data understanding + cleaning (each step = code + unit test), write `eda.md` | eda |
 | 2 | `/kaggle-validate` | freeze CV via `tools/make_folds.py`, carve holdout, write `validation.md` + `folds.json` | validation |
 | 3 | `/kaggle-baseline` | dumb baseline (mean / base-rate), validate, first submission → `champion/` | submit |
-| 4 | `/kaggle-experiment` | the experiment loop: propose → develop → review → score → decide. Interactive (one node/turn) or hand to the workflow | experiment_plan, submit |
+| 4 | `/kaggle-experiment` | the experiment loop: propose (proposer↔critic) → register → build EVERY proposal → gate → decide | experiment_plan, submit |
 | 5 | `/kaggle-submit` | budget-gated submit + poll | submit |
-| 6 | `/kaggle-final` | deadline: lock the 2 finals — best-CV single + de-correlated CV-weighted blend (oracle-checked) | submit |
+| 6 | `/kaggle-final` | **user-triggered only:** lock the 2 finals — best-CV single + de-correlated CV-weighted blend (oracle-checked) | submit |
 | – | `/kaggle-status` | plain-language readout of where everything stands | read-only |
 
 ---
@@ -140,6 +144,7 @@ comps/<slug>/
   validation.md    # the frozen CV scheme + why it matches the official metric
   folds.json       # frozen fold indices (split-seed only)
   graph.md         # THE MAP: a Mermaid DAG of all nodes + a description table linking to each node.md
+  data.md          # DATA LINEAGE: engineered feature-sets (raw→base→fs_*) + which nodes consume each
   journal.md       # append-only, one timestamped line per node
   submissions.md   # append-only, UTC-timestamped ledger (source of truth for budget)
   champion/        # best node's code + submission.csv + README
@@ -209,7 +214,33 @@ graph LR
 
 Need more than the table shows? Open the path in the node's `detail` cell.
 
-### Search policy (which operator each round)
+### `data.md` — the data lineage (companion to `graph.md`)
+`graph.md` tracks **experiments** (node → parent); `data.md` tracks **data** — the
+engineered feature-sets and which nodes consume them. Same shape: a header line, a
+Mermaid DAG (`raw → base → fs_*  →  the nodes`), and a table
+(`id · what · derived from · recipe · leak-safety · produced by · consumed by`).
+Each node links back via its `uses_data: [fs_*]` field (`[]` = base only; combine
+nodes that blend OOF are `[]` — that lineage is the `combine` edges in `graph.md`).
+
+Every feature-set carries a **leak-safety class**, and this is the point — it tells
+the developer *how* the set may be built and the reviewer what to enforce:
+- **`stateless`** — row-wise deterministic, no `.fit`, no target, no cross-row stats
+  (e.g. a `u−g` colour). Safe to compute once and reuse.
+- **`fit_in_fold`** — needs a train-only reference: a fitted transform
+  (target-encode, scaler) **or** a cross-row stat (kNN density, group aggregate).
+  Built **inside each train fold only**, never on full train or test. (A label-free
+  cross-row feature fit on the whole train still leaks even though it never touches
+  the label — the static scan can't see it, so the `fit_in_fold` class is what
+  flags it.)
+
+The **proposer** reads `data.md` (reuse a feature-set before re-engineering one) and,
+on register, writes its rows + the node's `uses_data`. The orchestrator keeps it
+current by hand, like `graph.md`.
+
+### Search policy (how the proposer picks each proposal)
+This lives in the **`kaggle-proposer`** agent — it chooses the operator+parents for
+each proposal. The orchestrator then builds **every** confirmed proposal; there is
+no best-first frontier-expansion controller.
 1. **draft** while valid-root families < `num_drafts` (default 4);
 2. else **debug** a buggy node within depth (≤5 attempts; regenerate from scratch
    after 3; prune to `dead` after 5);
@@ -240,12 +271,9 @@ Freeze the CV **once** (`/kaggle-validate`) and never refit across folds:
 4. **group leakage** — a group key never straddles train+val folds.
 5. **temporal leakage** — lags/rolling computed from the past only; no centered
    windows; no global stats over the whole series.
-6. **shuffled-label control** — permute the labels, refit; CV must collapse to
-   the random baseline. If it doesn't, something leaks. (Run in the node's CV
-   harness; it needs the fit callable.)
-7. **duplicate detection** — near-duplicate rows across train↔test (critical for
+6. **duplicate detection** — near-duplicate rows across train↔test (critical for
    image/text).
-8. **CV-too-good tripwire** — an implausible CV jump is flagged for human eyes
+7. **CV-too-good tripwire** — an implausible CV jump is flagged for human eyes
    before a submission is spent on it.
 
 Dropped on purpose: adversarial-validation as a standing gate (available only as
@@ -285,6 +313,7 @@ id: node_NNNN
 desc: <≤8-word description — also the Mermaid label and the graph.md table row>
 op: draft|improve|debug|combine
 parents: [<id>, …]                 # [root] for a draft; 2+ for combine
+uses_data: [<fs_id>, …]            # engineered feature-sets this node consumes ([] = base only); see data.md
 family: gbdt|nn|linear|darts|ensemble|baseline
 status: proposed|running|buggy|dead|valid|champion
 stage: proposed|built|scored|reviewed|decided|submitted
@@ -294,9 +323,8 @@ cv: <mean or null>
 sem: <stderr or null>
 folds: [<per-fold scores>]
 baseline_cv: <baseline cv>
-shuffled_cv: <shuffled-label control cv or null>
 gates: {schema_ok: bool, oof_full: bool, no_nan: bool, dist_sane: bool,
-        leak_clean: bool, shuffle_collapsed: bool, cv_too_good: bool, passed: bool}
+        leak_clean: bool, cv_too_good: bool, passed: bool}
 gate_note: <one line, only if the human must act; else null>
 leak: clean|VOID|null
 lb: <public score or null>
@@ -317,8 +345,8 @@ target:     <metric + direction> · beats parent if CV <better than> <parent/cha
 ```
 
 `gates.passed` is true only when every required gate is true. `cv_too_good: true`
-is a *warn* the human eyeballs, not a blocker. A leak (`gates.leak_clean: false` or
-`shuffle_collapsed: false`) sets `leak: VOID` — the CV does not count.
+is a *warn* the human eyeballs, not a blocker. A leak (`gates.leak_clean: false`)
+sets `leak: VOID` — the CV does not count.
 
 ---
 
@@ -335,8 +363,9 @@ used=$(grep -c "^| $today" comps/<slug>/submissions.md)   # rows whose UTC date 
 ```
 today (UTC): <date -u +%F>   submissions: <used>/5 (resets 00:00 UTC)   deadline: <spec> (<days_left> left)
 ```
-`days_left = deadline − today`; when it gets small, switch the loop to final
-ensemble. Never spend a submission slot to A/B on the LB — CV decides *what* to
+`days_left = deadline − today`; when it gets small, **surface it** but keep
+running the experiment loop — only the user triggers `kaggle-final`. Never spend a
+submission slot to A/B on the LB — CV decides *what* to
 submit; a slot only goes to a node that beats the last submitted CV by more than
 fold-noise.
 
@@ -380,16 +409,28 @@ DONE=/tmp/<slug>_node_NNNN.done ; rm -f "$DONE"
 
 ## Subagents & the workflow
 
-- **`kaggle-developer`** implements one node in isolation (fresh context — it
-  gets the spec path, folds path, parent code path, and the one-line change
-  explicitly; it preloads the leakage skills). Run in `isolation: worktree` when
+The main session (the `/kaggle-experiment` skill) is the **orchestrator**: it
+sequences propose → register → build EVERY proposal → gate → decide. Four workers:
+
+- **`kaggle-proposer`** is the "what to try next" brain — reads `graph.md` +
+  `journal.md` + `MEMORY.md`, applies the search policy, and returns N proposals;
+  revises them on feedback; and (once confirmed) writes the node records + graph rows.
+- **`kaggle-proposal-reviewer`** critiques the *proposals* before any code is written
+  (soundness, redundancy, one-atomic-change, leak-risk). The auto-mode stand-in for
+  the human director — distinct from the leakage gate below.
+- **`kaggle-developer`** implements one node in isolation (fresh context — spec path,
+  folds path, parent code path, and the one-line change, explicit). It **builds
+  leak-free** (the static fit-inside-fold / no-target-leak rules are inline in its
+  agent) — prevention is its job. Run in `isolation: worktree` when
   several nodes build in parallel.
-- **`kaggle-reviewer`** runs the unit-test + leakage suite on a node, **writes the
-  gate booleans into the node record**, and voids the CV on any leak. Subagents
-  can't nest, so the **main session or the workflow** sequences developer → reviewer.
-- **`experiment-loop.js`** (workflow) is the `auto`-mode best-first fan-out. It
-  can't show cards, so in `auto_except_submit` it *queues* the best node and the
-  main session asks before submitting; in `full_auto` it submits within budget.
+- **`kaggle-reviewer`** *verifies* — runs the unit-test + leakage suite on a *built*
+  node (it preloads the `kaggle-leakage` skill), **writes the gate booleans into the
+  node record**, and voids the CV on any leak. Detection, not construction.
+
+Subagents can't nest, so the **main session** sequences proposer → developer →
+reviewer. **`propose-loop.js`** (workflow) runs the proposer↔critic refinement loop
+and returns the refined proposals; it can't pause or submit — the orchestrator
+registers, builds, decides, and (outside `full_auto`) asks the human before submitting.
 
 ---
 

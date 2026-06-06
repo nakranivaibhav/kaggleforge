@@ -7,7 +7,7 @@ grinding autonomously in between.
 
 There is almost no application here. The "program" is **markdown**: a standing
 playbook ([`CLAUDE.md`](CLAUDE.md)), per-stage **skills**, parallel **subagents**,
-and one **workflow** for the auto-mode grind. The only real code is a thin
+and one **workflow** for the proposer↔critic refinement loop. The only real code is a thin
 `tools/` of reusable `uv run` scripts (folds, leakage scan, Kaggle I/O,
 submission validation). Everything competition-specific — the data pipeline, the
 features, the models — is **bootstrapped per competition** into `comps/<slug>/`,
@@ -72,7 +72,7 @@ single stage by hand.
 /kaggle-eda                               # stage 1 — understand + clean the data
 /kaggle-validate                          # stage 2 — freeze the CV (folds.json) + holdout
 /kaggle-baseline                          # stage 3 — dumb baseline → first submission → champion/
-/kaggle-experiment                        # stage 4 — the experiment loop: propose → develop → review → score → decide
+/kaggle-experiment                        # stage 4 — the experiment loop: propose (proposer↔critic) → build EVERY proposal → gate → decide
 ```
 
 Helpers, any time:
@@ -117,11 +117,13 @@ kaggleforge/
       kaggle-start  kaggle-eda  kaggle-validate  kaggle-baseline
       kaggle-experiment  kaggle-submit  kaggle-final  kaggle-status  kaggle-io  kaggle-leakage
     agents/                       # parallel workers (fresh context, can't pause)
+      kaggle-proposer.md          #   proposes the next experiments; writes node records once confirmed
+      kaggle-proposal-reviewer.md #   critiques the proposals before any code is written
       kaggle-developer.md         #   implements one node in isolation
       kaggle-reviewer.md          #   runs unit-test + leakage suite, PASS/FAIL, voids on leak
       kaggle-eda-explorer.md      #   fans out EDA probes
     workflows/
-      experiment-loop.js          # auto-mode best-first fan-out over the graph
+      propose-loop.js             # proposer↔critic refinement loop → refined proposals
   comps/                          # one folder per competition (data gitignored)
     <slug>/ …                     # see below
 ```
@@ -139,6 +141,7 @@ comps/<slug>/
   validation.md    # the frozen CV scheme + why it matches the official metric
   folds.json       # frozen fold indices (split-seed only)
   graph.md         # THE MAP: a Mermaid DAG of all nodes + a description table linking to each node.md
+  data.md          # DATA LINEAGE: engineered feature-sets (raw→base→fs_*) + which nodes consume each
   journal.md       # append-only, one timestamped line per node
   submissions.md   # append-only, UTC-timestamped ledger — the source of truth for budget
   champion/        # the best valid node's src/ + submission.csv + README (byte-copied, never symlinked)
