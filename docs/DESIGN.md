@@ -208,13 +208,14 @@ frozen once and policed hard.
   for `error` severity): fit-inside-fold, target leakage (no feature with
   near-perfect correlation to the target; target absent from features),
   id/order leakage, group leakage, temporal leakage (past-only lags/rolling, no
-  centered windows, no global stats), **shuffled-label control**, duplicate
-  detection (train↔test), and the CV-too-good tripwire.
-- **The shuffled-label control** is the load-bearing one: permute the labels,
-  refit; CV must collapse to the random baseline. If it doesn't, something leaks.
-  It needs the model's fit/predict callable, so it lives in the node's CV harness
-  and imports `shuffled_label_ok` from `tools/leakage_scan.py` — the developer
-  subagent wires it in.
+  centered windows, no global stats), duplicate detection (train↔test), and the
+  CV-too-good tripwire.
+- **Leakage gating is the static `tools/leakage_scan.py` scan only** (its exit code
+  is the gate). The per-node shuffled-label control was removed — it permuted labels
+  and refit the model, doubling compute on slow NN/foundation nodes for a check the
+  static scan covers. The `kaggle-developer` runs the scan as part of its self-gate;
+  `fit_in_fold` cases the scan can't see (a cross-row stat fit on full train) are
+  caught by building the reference from train-fold rows only.
 - **CV↔LB is a diagnostic, not a trigger.** A gap is *logged and surfaced*, never
   auto-acted; chasing the public LB causes private shake-up. **Trust a well-built
   CV over the public LB** (CLAUDE.md Hard rule 6). A submission slot only goes to

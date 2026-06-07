@@ -1,6 +1,6 @@
 ---
 name: kaggle-eda
-description: Stage-1 interactive EDA + cleaning for a Kaggle comp — inspect the data with small `uv run python` snippets, optionally fan out the kaggle-eda-explorer subagent for parallel angles, write free-form findings to eda.md, and turn each cleaning/feature decision into reusable code + a small unit test. Use when the `eda` gate is the first unticked stage in `comps/<slug>/progress.md`, or when the human says "do EDA", "look at the data", or "clean the data".
+description: Stage 1 — interactive EDA + cleaning: probe the data, write findings to eda.md, turn each cleaning decision into reusable code + a unit test (optionally fan out kaggle-eda-explorer for parallel angles). Use when `eda` is the next unticked stage, or the human says "do EDA" / "look at the data" / "clean the data".
 argument-hint: <slug>   (the comp folder under comps/, e.g. titanic)
 allowed-tools: Bash, Read, Write, Edit
 ---

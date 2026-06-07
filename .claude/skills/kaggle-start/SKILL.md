@@ -1,6 +1,6 @@
 ---
 name: kaggle-start
-description: ENTRY point for a new Kaggle competition. Use when the human pastes a Kaggle competition URL or slug. Bootstraps comps/<slug>/, surfaces the one-time human provisioning (API token, accept rules, phone-verify), downloads the data + sample_submission via kaggle-io, writes spec.md (prose + machine yaml block), then renders the UNDERSTAND and TOOLKIT Decision Cards. Ends by pointing to /kaggle-eda.
+description: Stage 0 / entry point — bootstrap comps/<slug>/, surface the one-time human provisioning (token, accept rules, phone-verify), download data + sample_submission via kaggle-io, write spec.md, render the UNDERSTAND + TOOLKIT cards. Use when the human pastes a Kaggle competition URL or slug.
 argument-hint: "<competition-url-or-slug>"
 allowed-tools: Bash, Read, Write, Edit
 ---

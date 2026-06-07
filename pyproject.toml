@@ -20,6 +20,9 @@ dependencies = [
     "tabm>=0.0.3",
     "rtdl-num-embeddings>=0.0.12",
     "rtdl-revisiting-models>=0.0.2",
+    "pytabkit[models]>=1.7.3",
+    "tabpfn>=2.5",
+    "tabicl>=2.1.1",
 ]
 
 [dependency-groups]

@@ -1,6 +1,6 @@
 ---
 name: kaggle-io
-description: Reference for talking to Kaggle through tools/kaggle_io.py — auth, the two one-time human gates, and every subcommand (download/submit/submissions/leaderboard/budget/classify-error). Use when any skill needs to download competition data, make or poll a submission, read the leaderboard, check the daily budget, or decode a Kaggle error (especially a 403). Every other skill reaches Kaggle ONLY through this wrapper.
+description: Reference for tools/kaggle_io.py — auth, the two one-time human gates, and every subcommand (download/submit/submissions/leaderboard/budget/classify-error). Use to download data, make or poll a submission, read the leaderboard, check the budget, or decode a Kaggle error (especially a 403). Every Kaggle call goes through this wrapper.
 allowed-tools: Bash, Read
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: kaggle-status
-description: Read-only plain-language readout of where an kaggleforge competition stands — and the resume entry point. Use when the user asks "where are we / status / what's next" on a comp, or on any restart of a session to rebuild state. Never trains, submits, or edits artifacts; only reads and reports.
+description: Read-only readout of where a competition stands, and the resume entry point. Use when the user asks "where are we / status / what's next", or on any session restart to rebuild state. Never trains, submits, or edits — only reads and reports.
 argument-hint: "[slug]  (omit to use the only comp under comps/, or the most recently touched)"
 allowed-tools: Bash, Read
 ---

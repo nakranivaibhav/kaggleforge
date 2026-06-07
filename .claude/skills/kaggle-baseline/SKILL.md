@@ -1,6 +1,6 @@
 ---
 name: kaggle-baseline
-description: Stage 3 of kaggleforge. Build the dumbest defensible prediction (mean/median for regression, base-rate/majority for classification) as node_0000, compute its CV under the frozen folds.json, validate the submission file, promote it to champion, then make the FIRST real submission to prove the whole pipe end-to-end. Use when validation is frozen (folds.json + validation.md exist) and there is no champion yet, or the human says "baseline" / "first submission" / "/kaggle-baseline".
+description: Stage 3 — build the dumbest defensible baseline (mean/median or base-rate) as node_0000, score it on the frozen folds, promote to champion, then make the first real submission to prove the pipe end-to-end. Use when folds.json exists and there's no champion yet, or the human says "baseline" / "first submission" / "/kaggle-baseline".
 argument-hint: <slug>
 allowed-tools: Bash, Read, Write, Edit
 ---

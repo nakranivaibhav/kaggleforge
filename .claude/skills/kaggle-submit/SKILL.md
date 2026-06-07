@@ -1,6 +1,6 @@
 ---
 name: kaggle-submit
-description: Budget-gated Kaggle submission with async public-score poll. Use when a valid node's CV beats the last-submitted CV by more than fold-noise and you want to spend one of the day's 5 submission slots, or when `/kaggle-baseline` / `/kaggle-experiment` reach the `submit` gate. Computes today's budget from the UTC ledger (never a stored counter), blocks the 6th/day, renders the SUBMIT Decision Card (gated except `full_auto`), submits, polls the async public score, appends a UTC row to submissions.md, sets the node's the `stage` to submitted + `lb`, updates its row in `graph.md`, and logs the CV↔LB gap as a diagnostic.
+description: Budget-gated Kaggle submission with async public-score poll — computes today's budget from the UTC ledger, blocks the 6th/day, renders the SUBMIT card, submits, polls the score, then logs it to submissions.md + graph.md with the CV↔LB gap. Use when a valid node's CV beats the last-submitted CV by more than fold-noise, or a stage reaches the `submit` gate.
 argument-hint: <slug> <node_id>   e.g. titanic node_0007
 allowed-tools: Bash, Read, Write, Edit
 ---

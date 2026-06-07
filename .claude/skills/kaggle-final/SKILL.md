@@ -1,6 +1,6 @@
 ---
 name: kaggle-final
-description: User-triggered final ensemble + selection for a Kaggle competition. Picks the 2 entries to lock in for private scoring — the best-CV single pipeline and a CV-weighted blend of de-correlated champions/runners-up — gated by an oracle-complementarity check (only blend arms whose per-fold failures are disjoint). Use ONLY when the user explicitly asks — "final" / "finish" / "/kaggle-final". Never trigger this yourself (not on a near deadline, not on thinning returns); until the user asks, keep running /kaggle-experiment.
+description: Stage 6 — pick the 2 entries to lock for private scoring: the best-CV single pipeline + an oracle-checked CV-weighted blend of de-correlated nodes. Use ONLY when the user explicitly asks — "final" / "finish" / "/kaggle-final". Never trigger it yourself (not on a deadline, not on thinning returns); until then keep running /kaggle-experiment.
 argument-hint: <slug>
 allowed-tools: Bash, Read, Write, Edit
 ---

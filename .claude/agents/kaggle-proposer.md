@@ -52,7 +52,8 @@ For each confirmed proposal, in order:
   cv/sem/folds: null, baseline_cv, created: $DATE`) and the `## plan` body (built on /
   change / hypothesis / target);
 - add it to `graph.md`: a Mermaid edge from each parent + a table row (status
-  `running`), then refresh the header line;
+  `running`), then refresh the header line; verify BOTH the Mermaid node and the
+  table row exist for the new id before moving to the next proposal;
 - update `data.md` (create it with a `raw → base` root if it doesn't exist yet):
   set the node's `uses_data`, and if the proposal **introduces a new feature-set**,
   add a row (`fs_<name> · what · derived from · recipe · leak-safety · produced by ·

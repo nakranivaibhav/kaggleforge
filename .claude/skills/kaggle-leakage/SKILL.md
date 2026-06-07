@@ -1,6 +1,6 @@
 ---
 name: kaggle-leakage
-description: Reference — leakage & validation discipline for kaggleforge. Preloaded into the kaggle-reviewer subagent (and any node that computes CV). Use when validating a node's CV, deciding whether a score counts, running tools/leakage_scan.py, or judging a CV↔LB gap.
+description: Reference — leakage & validation discipline (preloaded into kaggle-developer, which self-gates every node it builds). Use when validating a node's CV, deciding whether a score counts, running tools/leakage_scan.py, or judging a CV↔LB gap.
 allowed-tools: Bash, Read
 ---
 
@@ -8,8 +8,8 @@ allowed-tools: Bash, Read
 
 A node's CV **does not count until the leakage suite passes**. Leakage voids a
 score regardless of how good the CV looks (CLAUDE.md hard rule 3). This skill is
-the standing checklist the `kaggle-reviewer` applies to every node — including
-data-cleaning and feature-engineering nodes.
+the standing checklist the `kaggle-developer` applies (self-gate) to every node it
+builds — including data-cleaning and feature-engineering nodes.
 
 The suite is **static + structural** → `tools/leakage_scan.py` (one command, JSON
 report, exit code is the gate).
@@ -78,7 +78,7 @@ uv run tools/leakage_scan.py ... ; echo "exit=$?"
   In `node.md` set `gates.leak_clean: false`, `leak: VOID`, and
   `status: buggy`; the fix is a **debug** child, not a re-score.
 
-The reviewer's PASS/FAIL is exactly this exit code — it must be 0 for the CV to
+The developer's self-gate PASS/FAIL is exactly this exit code — it must be 0 for the CV to
 count.
 
 ---

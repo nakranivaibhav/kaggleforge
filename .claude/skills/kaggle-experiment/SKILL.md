@@ -1,6 +1,6 @@
 ---
 name: kaggle-experiment
-description: Stage 4 — the experiment loop. Each round refine N proposals (kaggle-proposer ↔ kaggle-proposal-reviewer via the propose-loop workflow), register them, then build EVERY proposal (kaggle-developer, parallel or sequential), gate each (kaggle-reviewer), and decide promotion. Use when the comp has a frozen CV (folds.json) + a baseline champion and the human says "run experiments" / "/kaggle-experiment" / "improve the model" / "go auto". Interactive pauses once for the human to direct the proposals; auto runs straight through except the submit gate.
+description: Stage 4 — the experiment loop: refine N proposals (proposer↔critic via propose-loop), register them, build-and-gate EVERY proposal (kaggle-developer builds leak-free AND self-gates), decide promotion. Use when there's a frozen CV + baseline champion and the human says "run experiments" / "/kaggle-experiment" / "improve the model" / "go auto".
 argument-hint: "[interactive|auto] [--n-proposals N]"
 allowed-tools: Bash, Read, Write, Edit, Agent, Workflow, Skill
 ---
@@ -8,19 +8,18 @@ allowed-tools: Bash, Read, Write, Edit, Agent, Workflow, Skill
 # kaggle-experiment — propose → build all → gate → decide
 
 You are the **orchestrator**. Each round you get a set of proposals, build **every**
-one of them, gate them, and promote the best. There is no best-first branching and
-no pruning here — the **proposer** decides what to try; **you build all of it**. Four
-workers do the work:
+one of them, and promote the best. There is no best-first branching and no pruning
+here — the **proposer** decides what to try; **you build all of it**. Three workers
+do the work:
 
 | worker | role |
 |---|---|
 | **kaggle-proposer** | proposes N experiments, revises them, and (once confirmed) writes the node records |
 | **kaggle-proposal-reviewer** | critiques the proposals before any code is written |
-| **kaggle-developer** | builds one node — fold-correct CV + leak-clean + a valid submission |
-| **kaggle-reviewer** | gates one built node — unit tests + leakage suite (a leak VOIDs the CV) |
+| **kaggle-developer** | builds one node AND self-gates it — fold-correct + performant CV, leakage + unit gate, gate booleans written, a valid submission (a leak VOIDs the CV) |
 
 Read `CLAUDE.md` for the standing contract; this skill is the procedure. Subagents
-can't nest, so **you** (the main session) sequence proposer → developer → reviewer.
+can't nest, so **you** (the main session) sequence proposer → developer.
 
 ## 0 · Orient (every entry)
 - `<slug>` from `comps/` (or the arg). `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` — never type a date.
@@ -49,24 +48,31 @@ node id, writes `nodes/node_NNNN/node.md` (status `proposed`, the `## plan`, the
 feature-sets). You never hand-write node.md — the proposer owns it. It's one
 sequential call, so the parallel builders in §3 never collide on `graph.md`/`data.md`.
 
-## 3 · BUILD ALL — hand every node to kaggle-developer
+## 3 · BUILD-AND-GATE ALL — hand every node to kaggle-developer
 Build **every** registered node: spawn the developers **in parallel** when the nodes
 are independent (one `Agent` call each, in one message), or **sequentially** if
-compute/GPU is tight. Hand each developer: `spec.md`, `folds.json`, its `parent_src`,
-its node dir, the one-line change, and metric+direction. It writes a fold-correct
-`solution.py`, the per-fold CV into `node.md`, the OOF + `submission.csv` +
-`features.txt`. A traceback ⇒ it sets
-`status: buggy` (propose a `debug` node for it next round).
+compute/GPU is tight (esp. GPU nodes — serialize them; one 32 GB card can't run two
+big-model nodes at once). Hand each developer: `spec.md`, `folds.json`, its
+`parent_src`, its node dir, the one-line change, metric+direction, and the
+**baseline + parent per-fold scores** (for the cv-too-good + per-fold-delta gates).
+The developer writes a fold-correct, **performant** `solution.py` (it times one unit
+before the full run — never an unprofiled multi-hour job), the per-fold CV into
+`node.md`, the OOF + `submission.csv` + `features.txt`, **then self-gates**: runs the
+unit tests + leakage scan, writes the `gates:` booleans + `leak`, sets `status:
+valid|buggy|dead` and `stage: reviewed`. A traceback ⇒ `status: buggy` (propose a
+`debug` node next round); any error-severity leak ⇒ `leak: VOID` (CV does **not**
+count). One worker builds and proves — there is no separate review step.
 
-## 4 · GATE — kaggle-reviewer on each built node
-Spawn **kaggle-reviewer** on each clean-built node. It runs the unit tests + leakage
-suite, writes the `gates:` booleans into `node.md`, and sets `stage: reviewed`. Any
-error-severity leak ⇒ `leak: VOID`, `status: buggy`/`dead` — the CV does **not** count.
+> If a developer agent ever **re-launches a run you killed** or exits before its
+> backgrounded train finishes, take the node over directly (the orchestrator owns
+> the marker file): kill stray processes, attach your own waiter, and on completion
+> write the CV + run the gate yourself. Don't re-message a zombie agent.
 
 ## 5 · SCORE — confirm the CV
-The per-fold scores are already in `node.md` (`folds`). Confirm `cv = mean` and
-`sem = std(ddof=1)/sqrt(k)` are filled, set `status: valid`, and fill the node's `cv`
-cell + Mermaid label in `graph.md`.
+The per-fold scores + gate booleans are already in `node.md` (the developer wrote
+them in §3). Confirm `cv = mean`, `sem = std(ddof=1)/sqrt(k)`, and `gates.passed` are
+filled, that `status: valid` (for a passing node), and fill the node's `cv` cell +
+Mermaid label in `graph.md`. A `buggy`/`VOID` node's CV does not count.
 
 ## 6 · DECIDE — promote or keep
 For each valid node, compare to the champion (from `champion/README` / `graph.md`).

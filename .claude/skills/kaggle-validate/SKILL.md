@@ -1,6 +1,6 @@
 ---
 name: kaggle-validate
-description: Stage 2 of kaggleforge — freeze the cross-validation scheme ONCE and immutably. Use when the `validation` gate is next in `comps/<slug>/progress.md` (after `/kaggle-eda`, before `/kaggle-baseline`), or when the human says "freeze the CV" / "set up validation". Picks the leak-correct split from `spec.md`, carves an inviolable holdout, and writes `folds.json` + `validation.md`.
+description: Stage 2 — freeze the CV scheme ONCE: pick the leak-correct split from spec.md, carve an inviolable holdout, write folds.json + validation.md. Use when `validation` is the next stage, or the human says "freeze the CV" / "set up validation".
 argument-hint: <slug>
 allowed-tools: Bash, Read, Write
 ---
