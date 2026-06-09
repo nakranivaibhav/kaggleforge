@@ -179,14 +179,28 @@ to **the deepest ancestor(s) whose work it keeps**:
   in the dark.
 
 ### `graph.md` — the map you read first
-One file per comp. **Read it to orient; edit it by hand on every node event**
-(added · scored · gated · promoted) — keep a node's **two** places in sync: its
-Mermaid label (`desc · cv`, champion-styled) **and** its table row. A node built
-**outside the proposer** (a quick inline debug/combine) has no graph entry yet —
-add both yourself the moment you create it. Three parts: a header line (metric · champion
-· `updated <date -u>`), a Mermaid DAG (each node labelled `node_NNNN · <desc> ·
-<cv>`, champion styled), and a table whose last column is the path to that node's
-full record:
+One file per comp. **Read it to orient; edit it by hand on every node event.** A
+node's state lives in **THREE places that must change together, in the same edit
+pass** — never one without the others:
+1. its `node.md` frontmatter (`status`, `cv`/`sem`/`folds`, `lb`, `desc`),
+2. its **Mermaid label** (`node_NNNN · desc · cv`) + edge(s) + champ styling,
+3. its **table row** (`cv` · `lb` · `status` · detail path).
+
+Per event, touch all three:
+- **added** → frontmatter `status: proposed` · Mermaid node+edge(s) from its `parents` · table row.
+- **scored** → frontmatter `cv/sem/folds` · Mermaid label `cv` · table `cv`.
+- **promoted** → set the new champion in all three **AND demote the prior champion in all three
+  in the SAME pass**: remove its `:::champ`, flip its table status to `valid (prev champ)`, and
+  rewrite the header `champion:` line. (The stale-champion drift came from skipping this demotion.)
+
+**Invariant (true after every edit):** exactly ONE node is `status: champion` in
+frontmatter, has `:::champ` in Mermaid, reads `champion` in the table, and is named
+in the header — all the SAME node. A node built **outside the proposer** (a quick
+inline debug/combine) has no entry yet — add all three the moment you create it.
+
+Three parts: a header line (metric · champion · `updated <date -u>`), a Mermaid DAG
+(each node labelled `node_NNNN · <desc> · <cv>`, champion styled), and a table whose
+last column is the path to that node's full record:
 
 ````markdown
 # <slug> — experiments

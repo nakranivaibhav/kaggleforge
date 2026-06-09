@@ -63,9 +63,12 @@ For each confirmed proposal, in order:
   parents, uses_data, family, status: proposed, stage: proposed, metric, direction,
   cv/sem/folds: null, baseline_cv, created: $DATE`) and the `## plan` body (built on /
   change / hypothesis / target);
-- add it to `graph.md`: a Mermaid edge from each parent + a table row (status
-  `running`), then refresh the header line; verify BOTH the Mermaid node and the
-  table row exist for the new id before moving to the next proposal;
+- add it to `graph.md` in ONE pass — all three: (1) a Mermaid **labelled node**
+  `node_NNNN · <desc> · proposed` with an **edge from each parent**, and (2) a **table
+  row** (`cv`/`lb` `—`, status `proposed`, detail path), then (3) refresh the header
+  `updated` date. Verify the new id appears in BOTH the Mermaid AND the table before
+  the next proposal. You only ADD nodes (never promote) — leave every existing node's
+  champ styling/status untouched;
 - update `data.md` (create it with a `raw → base` root if it doesn't exist yet):
   set the node's `uses_data`, and if the proposal **introduces a new feature-set**,
   add a row (`fs_<name> · what · derived from · recipe · leak-safety · produced by ·

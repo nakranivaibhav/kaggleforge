@@ -79,10 +79,14 @@ For each valid node, compare to the champion (from `champion/README` / `graph.md
 **Promote** iff its CV beats the champion **beyond 2·sem** in the spec's direction
 AND it's leak-clean AND (if the lineage has a submitted LB) the CV gain is
 LB-consistent. On promote: byte-copy (cp, never symlink) `src/` + `submission.csv` →
-`champion/`, update `champion/README`, set `status: champion`, demote the old
-champion. On reject: leave `champion/` untouched. Either way set `stage: decided`,
-`decided: $DATE`, update `graph.md` (champ class + table + header), and append one
-`journal.md` line per node.
+`champion/`, update `champion/README`. Then move the champion crown in ONE pass — set
+the new node AND demote the old one across all three places each (per CLAUDE.md's
+graph rule): frontmatter `status` (`champion` ↔ `valid (prev champ)`), Mermaid `:::champ`
+(add ↔ remove), table status cell, and the header `champion:` line. On reject: leave
+`champion/` untouched. Either way set `stage: decided`, `decided: $DATE` on the decided
+node, and append one `journal.md` line per node. **Before leaving §6 verify the
+invariant: exactly one node reads `champion` in frontmatter, Mermaid, table, and header
+— the same node.**
 
 ## 7 · SUBMIT (gated)
 Submit only a node whose CV beats the **last submitted CV** by more than fold-noise
