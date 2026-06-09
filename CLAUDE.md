@@ -26,9 +26,11 @@ the first unticked stage:
 3. **kaggle-validate** — freeze `folds.json` + holdout → `validation.md`               · gate: validation
 4. **kaggle-baseline** — dumb baseline → first submission → champion                   · gate: submit
 5. **kaggle-experiment** — propose (proposer↔critic) → build EVERY proposal → gate → decide · gates: experiment_plan, submit
-6. **kaggle-final** — lock the 2 finals — **only when the user says so** (never auto-triggered) · gate: submit
 
-`kaggle-status` is read-only and available any time (it's also the resume entry).
+The experiment loop is the **terminal stage** — there is no "finish" step. You keep
+proposing, building, and submitting better nodes until the human stops you or the
+deadline hits. `kaggle-status` is read-only and available any time (it's also the
+resume entry).
 
 **Rules while driving:**
 - After a **non-gated** step, proceed to the next stage without asking.
@@ -40,10 +42,12 @@ the first unticked stage:
 - On a **fresh session**, FIRST read `comps/<slug>/progress.md` and resume from
   the first unticked stage — never restart completed stages.
 - One competition per `comps/<slug>/`; if several exist, ask which to work on.
-- **Never decide to finish.** `kaggle-final` runs **only when the user explicitly
-  asks for it** ("final" / "finish" / "/kaggle-final") — not the deadline, not
-  "returns are thinning," not any model judgement. Until then, keep running the
-  experiment loop. The deadline is information to surface, never a trigger.
+- **Never decide to stop. The goal is to top the leaderboard, and you pursue it with
+  unwavering tenacity.** Don't conclude "we've hit the ceiling," "returns are thinning,"
+  or "this is the practical limit" — a plateau is a signal to look outside (notebooks /
+  discussions / arXiv) and draft a fresh lever, never a reason to wind down. The deadline
+  is information to surface, never a trigger to stop. Keep running the experiment loop
+  until the human explicitly tells you to stop.
 
 ---
 
@@ -238,7 +242,15 @@ no best-first frontier-expansion controller.
 3. else **improve** the best valid node with exactly one atomic change, A/B'd vs
    its parent (reject on CV regress);
 4. **combine** 2+ valid, de-correlated nodes when a blend's OOF beats the best
-   single — also what `/kaggle-final` does.
+   single.
+5. **revival** — periodically (every ~3–4 rounds, and especially after a new strong base
+   lands) revisit DISCARDED nodes, because de-correlation and "what's redundant" are
+   *relative to the current base set* and go stale. Two modes: (a) **re-stack** strong
+   discards' saved `oof.npy` against the champion stack (free — no retraining); (b)
+   **retrain a discarded architecture on the CURRENT best feature-set/framing** — many
+   discards failed on OLDER features, not on the architecture (the RealMLP breakthrough was
+   exactly this: 0.949 on bare feats → 0.969 on rich FE). Trust CV for COMPLETE-classifier
+   revivals; never revive a narrow label-fit specialist (it mirages — node_0047).
 
 ---
 
@@ -355,7 +367,7 @@ used=$(grep -c "^| $today" comps/<slug>/submissions.md)   # rows whose UTC date 
 today (UTC): <date -u +%F>   submissions: <used>/5 (resets 00:00 UTC)   deadline: <spec> (<days_left> left)
 ```
 `days_left = deadline − today`; when it gets small, **surface it** but keep
-running the experiment loop — only the user triggers `kaggle-final`. Never spend a
+running the experiment loop — never wind down on your own. Never spend a
 submission slot to A/B on the LB — CV decides *what* to
 submit; a slot only goes to a node that beats the last submitted CV by more than
 fold-noise.

@@ -23,6 +23,7 @@ dependencies = [
     "pytabkit[models]>=1.7.3",
     "tabpfn>=2.5",
     "tabicl>=2.1.1",
+    "optuna",
 ]
 
 [dependency-groups]

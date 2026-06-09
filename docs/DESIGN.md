@@ -262,7 +262,7 @@ with zero in-context memory. Two rules make that safe.
   `uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md`), so it
   can't drift across a resume. `progress.md`'s header is regenerated on read;
   `days_left = deadline − today`; when it shrinks, it's surfaced but the loop keeps
-  experimenting — `/kaggle-final` is user-triggered only, never auto-started.
+  experimenting — there is no "finish" stage; the loop runs until the human stops it.
 
 The canonical restart path is `/kaggle-status`: read `progress.md` → find the
 in-progress stage → if experiments, read the `graph.md` map to rebuild the

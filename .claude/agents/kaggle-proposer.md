@@ -33,6 +33,18 @@ Apply the search policy and pick the operator + parents for each proposal:
 2. **debug** — else the shallowest `buggy` node within depth. `parents=[the buggy node]`.
 3. **improve** — else the best valid node, EXACTLY ONE atomic change, A/B vs its parent. `parents=[that node]`.
 4. **combine** — when 2+ valid, de-correlated nodes' blend should beat the best single. `parents=[the 2+ nodes]`.
+5. **revival** — every ~3–4 rounds, and ESPECIALLY right after a new strong base lands (the residual
+   structure just shifted, so old verdicts are stale), revisit DISCARDED nodes two ways:
+   (a) *cheap re-stack* — a `combine` node that A/Bs strong discards' SAVED OOF (`nodes/<id>/oof.npy`)
+       as candidate additions to the champion stack. No retraining; promote only if one lifts CV > fold-noise.
+   (b) *retrain-on-current* — a `draft`/`improve` that REBUILDS a discarded ARCHITECTURE on the CURRENT
+       best feature-set or framing. Many discards failed because they were trained on OLDER features or a
+       weaker framing, NOT because the architecture caps — re-fit them on `fs_realmlp_fe` (or whatever is
+       current). This is how the RealMLP breakthrough happened (node_0021 bare-feats 0.949 → node_0028
+       rich-FE 0.969, +0.020). Scope (a) to strong discards (≥ ~champion-base solo); for (b) prefer a
+       de-correlated architecture never yet given the current features (e.g. an attention NN on rich FE).
+   Trust the CV for revivals of COMPLETE classifiers (honest), but NEVER revive a narrow label-fit
+   error-pocket/specialist model — that mirages (node_0047: CV +0.001, LB −0.008).
 
 Keep **≥2 families alive**: if the best lineage hasn't beaten CV by >1·SEM over 5
 improves, force a draft of a different family. Make the proposals **independent**

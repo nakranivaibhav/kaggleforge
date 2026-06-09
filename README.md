@@ -79,7 +79,6 @@ Helpers, any time:
 
 ```
 /kaggle-submit     # budget-gated submit + async poll for the public score
-/kaggle-final      # near the deadline — lock the 2 finals (best single + de-correlated blend)
 /kaggle-status     # plain-language readout of where everything stands (read-only)
 ```
 
@@ -115,7 +114,7 @@ kaggleforge/
   .claude/
     skills/                       # the per-stage procedures (one folder per slash command)
       kaggle-start  kaggle-eda  kaggle-validate  kaggle-baseline
-      kaggle-experiment  kaggle-submit  kaggle-final  kaggle-status  kaggle-io  kaggle-leakage
+      kaggle-experiment  kaggle-submit  kaggle-status  kaggle-io  kaggle-leakage
     agents/                       # parallel workers (fresh context, can't pause)
       kaggle-proposer.md          #   proposes the next experiments; writes node records once confirmed
       kaggle-proposal-reviewer.md #   critiques the proposals before any code is written
