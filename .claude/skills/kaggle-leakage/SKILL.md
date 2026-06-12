@@ -1,117 +1,103 @@
 ---
 name: kaggle-leakage
-description: Reference — leakage & validation discipline (preloaded into kaggle-developer, which self-gates every node it builds). Use when validating a node's CV, deciding whether a score counts, running tools/leakage_scan.py, or judging a CV↔LB gap.
+description: Reference — leakage & validation discipline (preloaded into kaggle-developer, which self-gates every node it builds). The fast in-node self-check protocol — input checks BEFORE training, output checks AFTER; seconds each, never a training run. Use when validating a node's CV, deciding whether a score counts, or judging a CV↔LB gap.
 allowed-tools: Bash, Read
 ---
 
 # Leakage & validation discipline (reference)
 
-A node's CV **does not count until the leakage suite passes**. Leakage voids a
-score regardless of how good the CV looks (CLAUDE.md hard rule 3). This skill is
-the standing checklist the `kaggle-developer` applies (self-gate) to every node it
+A node's CV **does not count until the self-checks pass**. Leakage voids a score
+regardless of how good the CV looks (CLAUDE.md hard rule 3). This skill is the
+standing checklist the `kaggle-developer` applies (self-gate) to every node it
 builds — including data-cleaning and feature-engineering nodes.
 
-The suite is **static + structural** → `tools/leakage_scan.py` (one command, JSON
-report, exit code is the gate).
+**Design: every check is a super-fast data/output computation (seconds) or a read
+of your own code. NO check involves a training run.** There is no scanner tool —
+*you* are the scanner; record the results as the gate booleans in `node.md`.
 
 ---
 
-## The surviving suite (what each check is)
+## Pre-train checks (BEFORE launching training — a leak caught here costs zero GPU)
 
-From `tools/leakage_scan.py` (run `uv run tools/leakage_scan.py --selftest` to
-confirm the tool itself is sound before trusting a report):
+Run these on the assembled feature matrix + your own `solution.py`:
 
-| check | surface | severity | catches |
-|---|---|---|---|
-| `no_global_fit_in_source` | static scan of `solution.py` | **warn** | a transform `.fit(` on full / `concat([train,test])` data → verify fit-inside-fold |
-| `target_not_in_features` | structural | **error** | target (or any `--target-cols`) used as a feature |
-| `id_not_in_features` | structural | **error** | id column / row-order used as a feature |
-| `feature_target_correlation` | structural | **error** if a hit | a feature with ≥0.999 \|corr\| vs target (target-leak smell) |
-| `train_test_duplicates` | structural | **warn** | train rows that duplicate a test row on features |
-| `cv_too_good_tripwire` | in-node (`cv_too_good`) | **warn** | implausible CV jump over baseline — human eyeballs before a slot is spent |
+1. **target not in features** *(error)* — the target, and any deterministic alias
+   of it (a renamed copy, a leaked aggregate), absent from the feature list.
+   Exact set-check.
+2. **id / row-order not in features** *(error)* — the id column, and anything
+   monotone in row order, absent.
+   ```python
+   assert TARGET not in features and ID_COL not in features
+   ```
+3. **single-feature↔target sweep** *(error on a hit)* — on a ≤50k-row sample, a
+   feature with near-perfect |corr| (or single-feature AUC) vs the target
+   (≥ 0.999) is a leak smell — stop and inspect, don't train.
+   ```python
+   s = train.sample(min(50_000, len(train)), random_state=0)
+   ys = pd.factorize(s[TARGET])[0] if s[TARGET].dtype == object else s[TARGET]
+   for c in features:
+       x = pd.to_numeric(s[c], errors="coerce")
+       if x.nunique() > 1 and abs(np.corrcoef(x.fillna(x.mean()), ys)[0, 1]) >= 0.999:
+           raise SystemExit(f"leak smell: {c} ~ target")
+   ```
+4. **fit-inside-fold, by reading your own fold loop** *(error)* — for EVERY
+   fitted transform (scaler / encoder / imputer / target-encoder / selector) AND
+   every cross-row stat (kNN density, group aggregate, neighbor count): confirm
+   it is computed **inside the fold loop from train-fold rows only** — never on
+   full train, never on `concat([train, test])`. Walk each `fit_in_fold`
+   feature-set the node consumes (`uses_data` → `data.md`) explicitly. (The final
+   refit-on-all-train for the submission, AFTER the OOF loop, is correct and
+   expected — the leak is a *transform* fit on full data before/during CV, or
+   anything fit on test.)
+5. **frozen folds** *(error)* — fold indices come from `folds.json`; never
+   recomputed, never reshuffled.
+6. **train↔test near-duplicates** *(warn)* — on a sample, exact / rounded-value
+   matches across train↔test on the feature columns (critical for image/text).
 
-Group / temporal correctness is **enforced upstream** by `tools/make_folds.py`
-(TimeSeriesSplit = past→future expanding window; GroupKFold = a group never
-straddles folds): the frozen `folds.json` is what enforces that a group never
-straddles folds and that each fold trains only on past rows. Never refit folds
-across the run — freeze once in `/kaggle-validate` and read `folds.json`.
+## Post-train checks (on the OUTPUTS — no extra compute)
 
----
+7. **OOF complete** *(error)* — the OOF array covers every train row exactly
+   once, each row predicted by the fold that held it out; no NaN.
+8. **distribution sane** *(error)* — predictions not collapsed to one value, not
+   inverted, inside the target's valid range; class probabilities sum to 1.
+9. **submission schema** *(error)* — `uv run tools/validate_submission.py`
+   against `sample_submission.csv` (ids, header, row count).
+10. **cv-too-good** *(warn → human)* — compare to the parent/baseline: a jump far
+    beyond anything the lineage has produced, or a near-perfect score, goes in
+    `gate_note` for human eyes BEFORE a submission is spent. A warn, not a void.
 
-## Static + structural scan — the invocation
+## Recording (the gate booleans in `node.md`)
 
-```bash
-uv run tools/leakage_scan.py \
-  --train comps/<slug>/data/train.csv \
-  --test  comps/<slug>/data/test.csv \
-  --target <TARGET_COL> \
-  --id     <ID_COL> \
-  --features-file comps/<slug>/nodes/node_NNNN/src/features.txt \
-  --source        comps/<slug>/nodes/node_NNNN/src/solution.py \
-  --out           comps/<slug>/nodes/node_NNNN/leakage_scan.json
 ```
-
-- `--features-file` is a **newline-separated list of the exact feature column
-  names** the node feeds the model. The node writes this (one feature per line)
-  before review; the scan reads it to check target/id aren't among them and that
-  no feature copies the target. If the node has no test split available, omit
-  `--test` (the duplicate check is then skipped as a warn).
-- `--target-cols a,b,c` (comma-separated) lists any *additional* columns that are
-  deterministic functions of the target (e.g. a leaked aggregate) — they're
-  treated as target columns by `target_not_in_features`.
-- `--source` static-scans that file for a global `.fit(`; pass the node's real
-  `solution.py`.
-
-### Reading the exit code (the gate)
-
-```bash
-uv run tools/leakage_scan.py ... ; echo "exit=$?"
+gates: {schema_ok: ←9, oof_full: ←7, no_nan: ←7, dist_sane: ←8,
+        leak_clean: ←checks 1–6 all clean, cv_too_good: ←10, passed}
 ```
-
-- **exit 0** → no `error`-severity check failed. `warn`s may still be present
-  (printed as `[warn]`, written to the JSON) — surface them in the node's
-  `gate_note` (and `cv_too_good` in `gates:`), but they do **not** void the CV.
-  Resolve a `no_global_fit_in_source` warn by reading the flagged line and
-  confirming the fit is inside-fold.
-- **exit 1** → at least one **`error`**-severity check failed → **VOID this
-  node's CV.** The node is *buggy*, not *valid*, no matter what its metric says.
-  In `node.md` set `gates.leak_clean: false`, `leak: VOID`, and
-  `status: buggy`; the fix is a **debug** child, not a re-score.
-
-The developer's self-gate PASS/FAIL is exactly this exit code — it must be 0 for the CV to
-count.
-
----
-
-## CV-too-good tripwire (warn, before spending a slot)
-
-Before the node's CV is allowed to claim champion / a submission slot, sanity it:
-
-```python
-from tools.leakage_scan import cv_too_good
-chk = cv_too_good(node_cv, baseline_cv, DIRECTION)   # default max_rel_gain=0.9
-# chk.passed False → an implausible jump over baseline; do not auto-submit —
-# surface in the Decision Card for human eyes (it is a warn, not a void).
-```
+- Any *error*-level failure → `gates.leak_clean: false`, `leak: VOID`,
+  `status: buggy` — the CV does not count, no matter its value; the fix is a
+  **debug** child, not a re-score.
+- `passed` is true only when every required gate is true (`cv_too_good: true` is
+  a warn the human eyeballs, never a blocker).
 
 ---
 
 ## The rules (do not negotiate these)
 
-1. **Leakage voids a score, full stop.** An `error` from `leakage_scan.py`
-   (exit 1) marks the node `buggy` and its CV does not count — regardless of how
-   good the CV is. Fix via a **debug** child.
+1. **Leakage voids a score, full stop.** An error-level failure marks the node
+   `buggy` and its CV does not count — regardless of how good the CV is.
 2. **A CV↔LB gap is a DIAGNOSTIC ONLY — never an auto-demote.** Trust a
    well-built local CV over the small, noisy public LB (CLAUDE.md rule 6). Log
    the gap in the journal, surface it in a Decision Card, and only investigate
    (re-read folds for a group/time mismatch; consider a one-off adversarial-
    validation diagnostic) — never silently swap the champion because the LB
    disagreed.
-3. **Adversarial validation is NOT a standing gate.** It is a one-off diagnostic,
-   used only when a large unexplained CV↔LB gap appears. Do not add it to the
-   per-node suite, and never demote a node on its output.
-4. **Every node clears this suite before its CV counts** — cleaning and
+3. **Adversarial validation is NOT a standing gate.** One-off diagnostic only,
+   when a large unexplained CV↔LB gap appears; never demote a node on its output.
+4. **Every node clears the self-checks before its CV counts** — cleaning and
    feature-engineering nodes included. A feature that "improves CV" but fails
-   `target_not_in_features` / fit-inside-fold is buggy, not good.
+   fit-inside-fold is buggy, not good.
 5. **Folds are frozen.** Read `folds.json`; never call `make_folds.py` again
    mid-run. Every transform fits inside the train fold only.
+6. **Group / temporal leakage is prevented upstream by construction** —
+   `tools/make_folds.py` + the frozen `folds.json` (a group never straddles
+   folds; time-series folds are past-only) — not re-checked per node. No leakage
+   check may require a training run (shuffled-label controls stay removed).

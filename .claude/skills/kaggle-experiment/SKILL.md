@@ -16,7 +16,7 @@ do the work:
 |---|---|
 | **kaggle-proposer** | proposes N experiments, revises them, and (once confirmed) writes the node records |
 | **kaggle-proposal-reviewer** | critiques the proposals before any code is written |
-| **kaggle-developer** | builds one node AND self-gates it — fold-correct + performant CV, leakage + unit gate, gate booleans written, a valid submission (a leak VOIDs the CV) |
+| **kaggle-developer** | builds one node AND self-gates it — fold-correct + performant CV, fast leakage self-checks (pre-flight + outputs), gate booleans written, a valid submission (a leak VOIDs the CV) |
 
 Read `CLAUDE.md` for the standing contract; this skill is the procedure. Subagents
 can't nest, so **you** (the main session) sequence proposer → developer.
@@ -24,8 +24,8 @@ can't nest, so **you** (the main session) sequence proposer → developer.
 ## 0 · Orient (every entry)
 - `<slug>` from `comps/` (or the arg). `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` — never type a date.
 - Read `config.md` → mode. `auto_except_submit`/`full_auto` ⇒ **AUTO**; `interactive` ⇒ **MANUAL**.
-- Read `spec.md` machine block (`metric, direction, target, target_cols, id, task_type, …`), `graph.md` (the champion + node table), `data.md` (the engineered feature-sets), and the `journal.md` tail. Confirm `folds.json` + `champion/` exist (else run `/kaggle-validate` + `/kaggle-baseline` first).
-- **Resume:** if a node is `running`, open its `node.md` and resume from its `stage` (e.g. `built` with no `cv` ⇒ resume at §5 score). A `running` node with no artifacts ⇒ mark `dead`, move on.
+- Read `spec.md`'s yaml machine block (`metric, metric_direction, target_col, target_cols, id_col, task_type, …`), `graph.md` (the champion + node table), `data.md` (the engineered feature-sets), and the `journal.md` tail. Confirm `folds.json` + `champion/` exist (else run `/kaggle-validate` + `/kaggle-baseline` first).
+- **Resume:** if a node is `running`, open its `node.md` and resume from its `stage` (e.g. `built` with no `cv` ⇒ re-run its scoring step, §5). A `running` node with no artifacts ⇒ mark `dead`, move on.
 
 ## 1 · PROPOSE — refine the round's proposals (`experiment_plan` gate)
 Run the **propose-loop** workflow — it spawns kaggle-proposer (draft **3**
@@ -54,12 +54,13 @@ are independent (one `Agent` call each, in one message), or **sequentially** if
 compute/GPU is tight (esp. GPU nodes — serialize them; one 32 GB card can't run two
 big-model nodes at once). Hand each developer: `spec.md`, `folds.json`, its
 `parent_src`, its node dir, the one-line change, metric+direction, and the
-**baseline + parent per-fold scores** (for the cv-too-good + per-fold-delta gates).
-The developer writes a fold-correct, **performant** `solution.py` (it times one unit
-before the full run — never an unprofiled multi-hour job), the per-fold CV into
-`node.md`, the OOF + `submission.csv` + `features.txt`, **then self-gates**: runs the
-unit tests + leakage scan, writes the `gates:` booleans + `leak`, sets `status:
-valid|buggy|dead` and `stage: reviewed`. A traceback ⇒ `status: buggy` (propose a
+**baseline + parent per-fold scores** (for the cv-too-good judgment). The developer
+runs its **pre-flight leakage checks** (seconds, before any training), writes a
+fold-correct, **performant** `solution.py` (it times one unit before the full run —
+never an unprofiled multi-hour job), the per-fold CV into `node.md`, `oof.npy` +
+`test_probs.npy` + `submission.csv`, **then self-gates** on the outputs (the
+`kaggle-leakage` checklist — never a training-run check), writes the `gates:`
+booleans + `leak`, sets `status: valid|buggy|dead` and `stage: reviewed`. A traceback ⇒ `status: buggy` (propose a
 `debug` node next round); any error-severity leak ⇒ `leak: VOID` (CV does **not**
 count). One worker builds and proves — there is no separate review step.
 
@@ -90,8 +91,12 @@ invariant: exactly one node reads `champion` in frontmatter, Mermaid, table, and
 
 ## 7 · SUBMIT (gated)
 Submit only a node whose CV beats the **last submitted CV** by more than fold-noise
-(2·sem) — never spend a slot to A/B on the LB. Validate the file and check budget
-first (`uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md`).
+(2·sem — the canonical definition in CLAUDE.md "Budget & deadline") — never spend a
+slot to A/B on the LB. Validate the file and check budget first:
+```bash
+lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)
+uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit "$lim"
+```
 - **MANUAL / `auto_except_submit`:** render the SUBMIT Decision Card and **wait** — the human owns every real submission. Run `/kaggle-submit <slug> node_NNNN`.
 - **`full_auto` + budget:** `/kaggle-submit <slug> node_NNNN`, append the ledger row, poll the public score.
 

@@ -29,21 +29,21 @@ under `comps/` (or ask which one). Everything below uses `comps/<slug>/`.
   ```
 
 ## 1 · Parse the spec machine block
-`spec.md` ends with a fenced ```` ```machine ```` block of key fields. Read it
-and pull the values that drive the split. Expected keys (write whatever the spec
-actually used; these are the canonical names):
+`spec.md` ends with a fenced ```` ```yaml ```` machine block of key fields. Read
+it and pull the values that drive the split. Canonical key names (what
+kaggle-start writes):
 
 | spec key | maps to flag | meaning |
 |---|---|---|
-| `target` | `--target` | label column (required for stratified) |
+| `target_col` | `--target` | label column (required for stratified) |
 | `task_type` | `--task-type` | `classification*` ⇒ stratified, else kfold |
 | `group_key` | `--group-key` | a unit that must not straddle folds (patient, image, store) |
 | `time_col` | `--time-col` | ordering column ⇒ expanding-window timeseries |
 | `metric` | — | the official metric — you justify the scheme against THIS |
-| `id` | — | id column (for the holdout note + leakage awareness) |
+| `id_col` | — | id column (for the holdout note + leakage awareness) |
 
 ```bash
-sed -n '/^```machine/,/^```/p' comps/<slug>/spec.md
+sed -n '/^```yaml/,/^```/p' comps/<slug>/spec.md
 ```
 If a key is absent in the spec, treat it as unset (don't invent a group/time
 column). The tool's auto-pick priority is **timeseries > group > stratified >
@@ -99,8 +99,8 @@ PY
 The remaining `n_splits-1` folds are the working CV. Be explicit in
 `validation.md` that the holdout rows are excluded from every `.fit(` —
 encoders, scalers, target-encoders, feature stats, model fit. (This is enforced
-later by `tools/leakage_scan.py`'s fit-inside-fold check; here you just record
-the contract.)
+later by the developer's fast leakage self-checks — the `kaggle-leakage` skill;
+here you just record the contract.)
 
 ## 4 · Write `validation.md` (the WHY, in plain language)
 Explain, for a smart non-specialist, **why this scheme reproduces the official
@@ -147,19 +147,16 @@ timestamped line to `journal.md`:
 echo "| $NOW | validation | froze <scheme> ${NSPLITS}-fold seed=42, holdout=<count> rows | folds.json validation.md |" \
   >> comps/<slug>/journal.md
 ```
-Then render the gate card (this is a **human gate** outside `full_auto`):
-```
-📋 validation
-What's going on:   I froze how I'll grade myself locally before training anything.
-Found / propose:   • scheme: <scheme>, <n_splits>-fold, seed 42 (split-only)
-                   • inviolable holdout: <count> rows (<pct>%), never fit on
-                   • local CV uses the official metric: <metric>
-                   • re-splitting later is auto-rejected (frozen contract)
-Why:               so my private CV score tracks Kaggle's private grade — no shake-up.
-Cost:              seconds · no compute · 0 submissions
-Your call:         [Approve] [Change scheme] [Change n_splits/seed] [Tell me more]
-Autonomy: <mode> — <waiting | proceeding>
-```
+Then render `📋 validation` in the **CLAUDE.md Decision Card format** (this is a
+**human gate** outside `full_auto`); stage-specific content:
+- *What's going on*: I froze how I'll grade myself locally before training anything.
+- *Found / propose* bullets: scheme + n_splits + seed (split-only) · the
+  inviolable holdout (count, %, never fit on) · local CV uses the official
+  metric · re-splitting later is auto-rejected (frozen contract).
+- *Why*: so my private CV tracks Kaggle's private grade — no shake-up.
+- *Cost*: seconds · no compute · 0 submissions.
+- Stage-specific responses to honor besides the standard buttons:
+  `[Change scheme]` and `[Change n_splits/seed]`.
 In `interactive` / `auto_except_submit`, **wait** for approval (validation is a
 gate). In `full_auto`, proceed to `/kaggle-baseline`. If the human changes the
 scheme/seed, re-run step 2 once and re-freeze — that's allowed only **here**,

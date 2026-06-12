@@ -17,9 +17,10 @@ every later node only changes the prediction, never the plumbing.
 `comps/<slug>/...`. Dates are ALWAYS `date -u` — never typed.
 
 ## Preconditions (read, don't assume)
-1. `Read comps/<slug>/spec.md` — pull the machine block: `target`, `id` column,
-   `metric`, `direction` (minimize|maximize), `task_type`
-   (regression|classification_*), and the sample-submission value column name(s).
+1. `Read comps/<slug>/spec.md` — pull the fenced ```yaml machine block:
+   `target_col`, `id_col`, `metric`, `metric_direction` (minimize|maximize),
+   `task_type` (regression|classification_*), and the sample-submission value
+   column name(s).
 2. `Read comps/<slug>/validation.md` and confirm `comps/<slug>/folds.json` exists.
    If folds.json is missing, STOP — go run `/kaggle-validate` first.
 3. `Read comps/<slug>/progress.md`; confirm `validation` is ticked and `baseline`
@@ -78,15 +79,15 @@ Hard rules the script obeys:
 - For the *submission*, the constant is fit on **all** train rows (that's correct —
   test is never in the fit) and broadcast to every test id.
 - Output columns must byte-match `sample_submission.csv`'s header and id set.
-- `features = []` (a constant uses no features) — write
-  `$node/src/features.txt` empty (one trailing newline) for the leakage scan.
+- `features = []` (a constant uses no features) — so the target/id-not-in-features
+  self-check is trivially true.
 
 Sketch (adapt names from spec.md; do not hardcode `Id`/`target`):
 ```python
 import json, numpy as np, pandas as pd
 from pathlib import Path
 D = Path(__file__).resolve().parents[3]             # comps/<slug>  (src→node→nodes→<slug>)
-slug, TARGET, IDC = "<slug>", "<target>", "<id>"
+slug, TARGET, IDC = "<slug>", "<target_col>", "<id_col>"
 tr = pd.read_csv(D/"data/train.csv"); te = pd.read_csv(D/"data/test.csv")
 samp = pd.read_csv(D/"data/sample_submission.csv")
 folds = json.loads((D/"folds.json").read_text())["folds"]
@@ -122,31 +123,33 @@ grep -E "cv=|Traceback|Error|Killed" $node/train.log
 No traceback → `train.log` exists, so advance `stage: built` in node.md's
 frontmatter. Then write the CV numbers straight into the **node.md frontmatter**
 (no `metrics.md`): set `cv: <mean>`, `sem: <sem>`, `folds: [<per-fold scores>]`,
-`baseline_cv: <mean>` (this constant *is* the baseline), and advance
-`stage: scored`. There is no separate unit-test gate for a constant — the leakage
-scan + validate are the gates.
+`baseline_cv: <mean>` (this constant *is* the baseline) — the score is computed
+within this build step, so `stage` stays `built`. There is no separate unit-test
+gate for a constant — the fast self-checks + validate are the gates.
 
-## Step 4 — leakage scan (constant baseline must pass trivially)
-```bash
-uv run tools/leakage_scan.py \
-  --train comps/$slug/data/train.csv --test comps/$slug/data/test.csv \
-  --target <target> --id <id> \
-  --features-file $node/src/features.txt --source $node/src/solution.py \
-  --out $node/leakage_scan.json
-echo "leak_exit=$?"
-```
-Exit 0 (a constant has no features, so every structural check is vacuously clean).
+## Step 4 — fast self-checks (constant baseline passes trivially)
+No tool runs here — these are the developer-style in-node self-checks (the
+`kaggle-leakage` checklist), all true by construction for a constant (no features
+to leak through):
+- **target/id not in features** — trivially true: `features = []`.
+- **OOF complete** — every fold's `val_idx` got a prediction (the loop covers all
+  folds, no row skipped).
+- **no NaN** — the constant is finite; no NaN/inf in the OOF scores or submission.
+- **distribution sane** — predictions are a single finite constant (expected).
+- **schema valid** — confirmed by `tools/validate_submission.py` in Step 5.
+
 Record the result in the node.md `gates:` frontmatter: set `leak_clean: true`
 and the structural booleans (`schema_ok`, `oof_full`, `no_nan`, `dist_sane`,
-`cv_too_good`) per the scan; set `leak: clean`. Exit 1 means the solution accidentally used a feature/id
-— fix solution.py, don't override the gate (set `leak: VOID` and the failing
-boolean false; the CV does not count).
+`cv_too_good`) accordingly; set `leak: clean`. (If solution.py ever accidentally
+used a feature/id, the target/id-not-in-features check would fail — fix solution.py,
+don't override the gate: set `leak: VOID` and the failing boolean false; the CV
+does not count.)
 
 ## Step 5 — validate the submission file (the schema gate)
 ```bash
 uv run tools/validate_submission.py \
   --submission $node/submission.csv \
-  --sample comps/$slug/data/sample_submission.csv --id <id>
+  --sample comps/$slug/data/sample_submission.csv --id <id_col>
 echo "valid_exit=$?"
 ```
 Must print `OK:` and exit 0. Any `INVALID:` line (column/row/id/NaN/inf) → fix
@@ -188,24 +191,25 @@ cp $node/submission.csv comps/$slug/champion/submission.csv
    `decided: $(date -u +%Y-%m-%dT%H:%MZ)`, and advance `stage: decided`. Append a
    `journal.md` line: `<NOW> node_0000 → champion cv=<…> (<metric> <direction>)`.
 
-## Step 7 — SUBMIT GATE (spends 1 of 5/day)
+## Step 7 — SUBMIT GATE (spends 1 of the daily limit)
 A real submission is irreversible + rate-limited → it is a **hard human gate**
-except in `full_auto`. Check the budget first (derived, never stored):
+except in `full_auto`. Check the budget first (derived, never stored); the daily
+limit comes from spec.md's `daily_submission_limit` (asked from the human at
+kaggle-start), never a literal:
 ```bash
-uv run tools/kaggle_io.py budget --ledger comps/$slug/submissions.md --limit 5
+lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/$slug/spec.md)
+uv run tools/kaggle_io.py budget --ledger comps/$slug/submissions.md --limit "$lim"
 ```
-Render the Decision Card (CLAUDE.md format):
-```
-📋 baseline · first submission
-What's going on:   the dumbest possible prediction is built and passes our own checks.
-Found / propose:   • node_0000 = constant <mean|median|base-rate>, cv=<…> (<metric>)
-                   • submission.csv validated against sample_submission (schema OK)
-                   • this is a dry run of the whole pipe — not a real model yet
-Why:               proves data→CV→submit→Kaggle works before we spend effort modelling.
-Cost:              ~0 compute · spends submission 1 of 5 today (resets 00:00 UTC)
-Your call:         [Approve] [Change something] [Skip] [Tell me more]
-Autonomy: <mode> — <waiting | proceeding>
-```
+Render the card in the CLAUDE.md Decision Card format, with this
+stage-specific content:
+- **stage:** baseline · first submission
+- **What's going on:** the dumbest possible prediction is built and passes our own checks.
+- **Found / propose:**
+  - node_0000 = constant <mean|median|base-rate>, cv=<…> (<metric>)
+  - submission.csv validated against sample_submission (schema OK)
+  - this is a dry run of the whole pipe — not a real model yet
+- **Why:** proves data→CV→submit→Kaggle works before we spend effort modelling.
+- **Cost:** ~0 compute · spends submission <used+1>/<lim> today (resets 00:00 UTC)
 - `interactive` / `auto_except_submit`: **wait** for approval (the submit gate is
   human in both). On "skip", leave node_0000 as champion, do NOT submit, mark
   progress and stop.
@@ -218,22 +222,25 @@ ledger/poll logic lives in one place:
 ```
 The kaggle-submit skill appends the UTC row to `submissions.md`, polls for the
 public score, and logs the CV↔LB gap (surfaced, never auto-acted). When it
-returns, in node.md set `lb: <public score>`, `submitted: <date -u>`, advance
-`stage: submitted`, and update the `lb` cell of the `graph.md` `## nodes` row; note
+returns, in node.md set `lb: <public score>` and `submitted: <date -u +%F>` (a
+submission is recorded by these fields — there is no `submitted` stage; `stage`
+stays `decided`), and update the `lb` cell of the `graph.md` `## nodes` row; note
 the public score + gap in `journal.md`. (If a 403 comes back, that's
 rules-not-accepted / unverified, NOT bad creds — surface the human gate, don't
 retry around it.)
 
 ## Step 8 — close the stage
 Tick `baseline` in `comps/$slug/progress.md` and regenerate its derived header
-(`today (UTC)=$(date -u +%F)`, `submissions=<used>/5`, `deadline … days_left`).
+(`today (UTC)=$(date -u +%F)`, `submissions=<used>/<lim>` where `lim` is spec.md's
+`daily_submission_limit`, `deadline … days_left`).
 Final readout to the human: champion = node_0000, local CV, public score (if
 submitted) and the CV↔LB gap, and that the pipe is proven end-to-end — next is
 `/kaggle-experiment` (real models).
 
 ## Guardrails
 - Never advance `stage` before its named artifact exists (artifact-then-mark):
-  `proposed → built → scored → reviewed → decided → submitted`.
+  `proposed → built → reviewed → decided` (a submission is recorded by the
+  `submitted:` date + `lb:` fields, not a stage).
 - A server-rejected submission does NOT burn the daily quota — safe to fix and
   resubmit; only an *accepted* submit counts.
 - Do not add features, models, or tuning here — that is `/kaggle-experiment`.

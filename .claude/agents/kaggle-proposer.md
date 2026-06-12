@@ -2,7 +2,7 @@
 name: kaggle-proposer
 description: The "what to try next" brain. Reads the experiment graph + data lineage + journal + memory and proposes N atomic-change experiment specs under the search policy; revises them from reviewer/human feedback; and — only once confirmed — writes the node.md records + graph.md rows + data.md feature-set lineage. Read-only until the confirm step. Use to plan a round before any node is built.
 tools: Read, Write, Edit, Bash, Grep
-model: opus
+model: fable
 ---
 
 # kaggle-proposer — what to try next
@@ -16,16 +16,22 @@ Read `CLAUDE.md` for the standing contract.
 You are told which ONE of three jobs to do: **PROPOSE**, **REVISE**, or **REGISTER**.
 
 ## Inputs (handed to you; don't guess)
-- `<slug>` + the spec machine block (`metric, direction, id, task_type, …`) — `comps/<slug>/spec.md`.
+- `<slug>` + the spec's fenced yaml machine block (`metric, metric_direction,
+  id_col, target_col, task_type, …`) — `comps/<slug>/spec.md`.
 - `n_proposals` (default 3).
 - For REVISE: the previous proposals + the feedback to apply.
 - For REGISTER: the confirmed proposals to write.
 
 Always first: `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` (never type a date), then read
 `comps/<slug>/graph.md` (the DAG + table), `comps/<slug>/data.md` (the engineered
-feature-sets), `comps/<slug>/journal.md` (tail), and the node records you reference.
-Retrieve the relevant `MEMORY.md` lines first (retrieve-before-propose). **Reuse an
-existing feature-set before re-engineering one** — check `data.md`.
+feature-sets), `comps/<slug>/journal.md` (tail), `comps/<slug>/research.md` +
+`discussions.md` if present (outside levers waiting to be drafted), and the node
+records you reference. Retrieve the relevant `MEMORY.md` lines first
+(retrieve-before-propose). **Reuse an existing feature-set before re-engineering
+one** — check `data.md`.
+
+> This file is the search policy's **single home** (CLAUDE.md carries only a
+> 3-line summary). Edit the policy here.
 
 ## Job PROPOSE — return `n_proposals` specs (write nothing)
 Apply the search policy and pick the operator + parents for each proposal:
@@ -33,7 +39,8 @@ Apply the search policy and pick the operator + parents for each proposal:
 2. **debug** — else the shallowest `buggy` node within depth. `parents=[the buggy node]`.
 3. **improve** — else the best valid node, EXACTLY ONE atomic change, A/B vs its parent. `parents=[that node]`.
 4. **combine** — when 2+ valid, de-correlated nodes' blend should beat the best single. `parents=[the 2+ nodes]`.
-5. **revival** — every ~3–4 rounds, and ESPECIALLY right after a new strong base lands (the residual
+5. **revival** (a re-examination habit that emits a normal combine/draft/improve —
+   not a node op) — every ~3–4 rounds, and ESPECIALLY right after a new strong base lands (the residual
    structure just shifted, so old verdicts are stale), revisit DISCARDED nodes two ways:
    (a) *cheap re-stack* — a `combine` node that A/Bs strong discards' SAVED OOF (`nodes/<id>/oof.npy`)
        as candidate additions to the champion stack. No retraining; promote only if one lifts CV > fold-noise.
@@ -46,8 +53,8 @@ Apply the search policy and pick the operator + parents for each proposal:
    Trust the CV for revivals of COMPLETE classifiers (honest), but NEVER revive a narrow label-fit
    error-pocket/specialist model — that mirages (node_0047: CV +0.001, LB −0.008).
 
-Keep **≥2 families alive**: if the best lineage hasn't beaten CV by >1·SEM over 5
-improves, force a draft of a different family. Make the proposals **independent**
+Keep **≥2 families alive**: if the best lineage hasn't improved CV by more than
+1·parent-SEM over 5 consecutive improves, force a draft of a different family. Make the proposals **independent**
 (distinct parents/families) so they can build in parallel. Return the proposals
 plus a one-line frontier read (where the search stands).
 

@@ -7,8 +7,8 @@ allowed-tools: Bash, Read, Write, Edit
 
 # /kaggle-start — stage 0, bootstrap + understand + toolkit
 
-You are at the very front of the pipeline (see CLAUDE.md "Stage flow"). Gates you
-own: **understand** and **toolkit**. Both are human gates unless
+You are at the very front of the pipeline (see CLAUDE.md "Canonical run order").
+Gates you own: **understand** and **toolkit**. Both are human gates unless
 `config.md` says `full_auto`. Do the work, then render the cards and wait.
 
 ## 0 · derive the slug
@@ -78,7 +78,7 @@ autonomy: interactive
 
 ```markdown
 # progress — <slug>
-today (UTC): <TODAY>   submissions: 0/5 (resets 00:00 UTC)   deadline: <tbd from spec>
+today (UTC): <TODAY>   submissions: 0/<limit, tbd from spec> (resets 00:00 UTC)   deadline: <tbd from spec>
 
 ## one-time setup (human)
 - [ ] KAGGLE_USERNAME + KAGGLE_KEY in env        → kaggle_io ensure_auth passes
@@ -193,6 +193,15 @@ score metrics (AUC, accuracy, F1, MAP). When unsure, say so in the prose and
 let the human correct it at the understand gate — a wrong metric reading
 poisons everything (CLAUDE.md hard rule).
 
+**Daily submission limit — ask the human (blocking).** The limit varies per comp
+(3 / 5 / 10 / …) and it lives in ONE place — `spec.md`'s `daily_submission_limit`;
+every budget read derives from it, so a wrong value silently wastes or forfeits
+slots. Read what the overview/rules pages say, then ask the human to confirm:
+"the comp page says N submissions/day — confirm? (the Submit page shows the live
+number)". Write the **confirmed** number; never default it. In `full_auto`: use
+the fetched page value, journal it; if it cannot be determined even then, this is
+a one-time human item like rules-acceptance — STOP and ask.
+
 Resolve the deadline to an absolute UTC date from the overview's Timeline (final
 submission deadline). Write `spec.md` with the **prose summary first** (a `#
 spec — <Title>` heading + 2–4 plain sentences: what you predict, on what data,
@@ -214,31 +223,33 @@ parse exactly these keys, so keep every one — use `null`/`[]` when N/A):
     submission_columns: [<col>, ...]
     sample_submission: <comps/<slug>/data/sample_submission.csv or null>
     n_test_rows: <int>
-    daily_submission_limit: 5
+    daily_submission_limit: <int>      # ASKED FROM THE HUMAN (blocking) — never a default
     deadline: <YYYY-MM-DD>             # absolute UTC, from the Timeline
 
-After writing, back-fill `deadline` into `progress.md`'s header line and tick the
-"spec.md written" box.
+After writing, **round-trip the machine block** so this contract can't silently
+drift — sed the fence back out; if it comes back empty the block is malformed,
+fix it before proceeding:
+
+```bash
+n=$(sed -n '/^```yaml/,/^```/p' "$COMP/spec.md" | grep -c ':')
+[ "$n" -ge 10 ] && echo "machine block ok ($n keys)" || echo "MALFORMED machine block — fix spec.md"
+```
+
+Then back-fill `deadline` + the submission limit into `progress.md`'s header line
+and tick the "spec.md written" box.
 
 ## 5 · UNDERSTAND Decision Card (gated)
 
-Render the card in the exact CLAUDE.md format. Plain English for a smart
-non-specialist — the goal, the metric + direction, how a submission is shaped,
-the limits, and where the leaderboard sits (link the comp's leaderboard tab).
-No jargon, no thumbnails.
-
-```
-📋 understand
-What's going on:   <one sentence: predict <target> for <n_test_rows> rows, scored by <metric>.>
-Found / propose:   • goal: <plain restatement>
-                   • metric: <metric> — <minimize|maximize>; <one line on what moves it>
-                   • submit: a CSV with columns <submission_columns>; <daily_limit>/day, resets 00:00 UTC
-                   • deadline: <deadline> (<days_left from date -u> left); leaderboard: kaggle.com/competitions/<slug>/leaderboard
-Why:               this reading drives every later flag; a wrong metric poisons everything.
-Cost:              ~0 compute · 0 submissions
-Your call:         [Approve] [Change something] [Skip] [Tell me more]
-Autonomy: interactive — waiting
-```
+Render `📋 understand` in the **CLAUDE.md Decision Card format** (single home —
+don't restate it here). Plain English for a smart non-specialist; stage-specific
+content:
+- *What's going on*: predict `<target>` for `<n_test_rows>` rows, scored by `<metric>`.
+- *Found / propose* bullets: the goal in plain words · the metric + direction (one
+  line on what moves it) · the submission shape + **the daily limit with an explicit
+  "confirm this number" ask** (it budgets everything downstream) · the deadline +
+  leaderboard link.
+- *Why*: this reading drives every later flag; a wrong metric poisons everything.
+- *Cost*: ~0 compute · 0 submissions.
 
 Honor the dial: if `config.md` is `full_auto`, print the card and proceed without
 waiting; otherwise **wait**. On "Change something", edit `spec.md` (e.g. fix the
@@ -264,18 +275,13 @@ task_type:
 Add a per-comp modelling dep only when a node needs it, via `uv add <pkg>` — never
 pin modelling libs globally (CLAUDE.md hard rule #1).
 
-```
-📋 toolkit
-What's going on:   picking the model families to seed the experiment graph's root drafts.
-Found / propose:   • draft A: <family> — <one line why it fits <task_type>>
-                   • draft B: <family> — <one line>
-                   • draft C: <family> — <one line>
-                   • baseline: <dumb baseline for /kaggle-baseline>
-Why:               keeping ≥2 different families alive lets the search pivot, not just tune.
-Cost:              ~0 now · deps added per-node with `uv add` when first used
-Your call:         [Approve] [Change something] [Skip] [Tell me more]
-Autonomy: interactive — waiting
-```
+Render `📋 toolkit` in the **CLAUDE.md Decision Card format**; stage-specific
+content:
+- *What's going on*: picking the model families that seed the graph's root drafts.
+- *Found / propose* bullets: draft A/B/C — `<family>` + one line why it fits
+  `<task_type>` · the dumb baseline for /kaggle-baseline.
+- *Why*: keeping ≥2 different families alive lets the search pivot, not just tune.
+- *Cost*: ~0 now · deps added per-node with `uv add` when first used.
 
 Honor the dial as in step 5. On approval, tick `toolkit` in `progress.md`, append
 a journal line recording the seeded families, and **point the human to the next

@@ -8,8 +8,9 @@ grinding autonomously in between.
 There is almost no application here. The "program" is **markdown**: a standing
 playbook ([`CLAUDE.md`](CLAUDE.md)), per-stage **skills**, parallel **subagents**,
 and one **workflow** for the proposer↔critic refinement loop. The only real code is a thin
-`tools/` of reusable `uv run` scripts (folds, leakage scan, Kaggle I/O,
-submission validation). Everything competition-specific — the data pipeline, the
+`tools/` of reusable `uv run` scripts (folds, Kaggle I/O, submission validation);
+leakage is the `kaggle-developer` subagent's own fast self-check, not a tool.
+Everything competition-specific — the data pipeline, the
 features, the models — is **bootstrapped per competition** into `comps/<slug>/`,
 never pinned globally.
 
@@ -107,10 +108,10 @@ kaggleforge/
   README.md                       # this file
   pyproject.toml  uv.lock         # tools/ deps only (modelling libs added per-comp)
   tools/                          # the thin reusable uv-run scripts (the only real code)
-    make_folds.py                 #   leak-correct CV scheme → folds.json
-    leakage_scan.py               #   the static + control leakage suite
+    make_folds.py                 #   leak-correct CV scheme → folds.json (group/temporal safety baked into the split)
     kaggle_io.py                  #   download / submit / submissions / budget / classify-error
     validate_submission.py        #   shape/columns check vs sample_submission
+                                  #   (leakage has no tool — kaggle-developer self-checks each node, see §4)
   .claude/
     skills/                       # the per-stage procedures (one folder per slash command)
       kaggle-start  kaggle-eda  kaggle-validate  kaggle-baseline
@@ -118,8 +119,7 @@ kaggleforge/
     agents/                       # parallel workers (fresh context, can't pause)
       kaggle-proposer.md          #   proposes the next experiments; writes node records once confirmed
       kaggle-proposal-reviewer.md #   critiques the proposals before any code is written
-      kaggle-developer.md         #   implements one node in isolation
-      kaggle-reviewer.md          #   runs unit-test + leakage suite, PASS/FAIL, voids on leak
+      kaggle-developer.md         #   builds AND self-gates one node in isolation (fast leak self-checks, voids on leak)
       kaggle-eda-explorer.md      #   fans out EDA probes
     workflows/
       propose-loop.js             # proposer↔critic refinement loop → refined proposals
@@ -145,7 +145,7 @@ comps/<slug>/
   submissions.md   # append-only, UTC-timestamped ledger — the source of truth for budget
   champion/        # the best valid node's src/ + submission.csv + README (byte-copied, never symlinked)
   nodes/node_NNNN/ # node.md (THE node record: plan + metrics + gate booleans), src/, train.log,
-                   #   leakage_scan.json, submission.csv
+                   #   submission.csv (leakage gate booleans live in node.md, written by the developer's self-check)
   data/            # downloaded + unzipped (gitignored)
 ```
 
@@ -156,14 +156,18 @@ comps/<slug>/
 The CV is **frozen once** at `/kaggle-validate` (`uv run tools/make_folds.py`
 picks the leak-correct scheme — time/group/stratified/plain — with an inviolable
 holdout) and never refit across folds; every transform is fit **inside the train
-fold only**. The leakage suite (`uv run tools/leakage_scan.py` plus an in-node
-shuffled-label control) is a **gate, not a warning**: a node that leaks is
-**void**, no matter how good its CV. Claude **trusts a well-built CV over the
+fold only**. Leakage is gated by the `kaggle-developer` subagent's own fast
+self-checks on each node it builds (target/id not among the features, a quick
+single-feature-vs-target correlation sweep, reading its own fold loop to confirm
+fit-inside-fold, then OOF coverage / no-NaN / distribution / cv-too-good sanity —
+seconds, never a training run; group & temporal safety come upstream from the frozen
+folds) — a **gate, not a warning**: a node that leaks is **void**, no matter how good
+its CV. Claude **trusts a well-built CV over the
 public LB** — the LB is a small noisy slice, so a CV↔LB gap is surfaced as a
 diagnostic, never auto-acted. The submission **budget and deadline are derived
-from UTC timestamps** in `submissions.md` at read time (≈5/day, resets 00:00 UTC)
-so they can't drift across a resume; dates always come from `date -u`, never
-memory. The whole run is **resumable**: macro state in `progress.md` checkboxes,
+from UTC timestamps** in `submissions.md` at read time (against the per-comp daily
+limit recorded in spec.md, resets 00:00 UTC) so they can't drift across a resume;
+dates always come from `date -u`, never memory. The whole run is **resumable**: macro state in `progress.md` checkboxes,
 micro per-node state in the converged `node.md` record's **`stage`** field
 (`proposed → built → scored → reviewed → decided → submitted`, advanced only after
 its artifact exists — artifact-then-mark) — on restart, resume at the first

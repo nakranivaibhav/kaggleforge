@@ -17,10 +17,11 @@ your one change. Read `CLAUDE.md` for the standing contract; the `kaggle-leakage
 skill (preloaded) is your leakage checklist.
 
 ## What you're given
-The spec (`comps/<slug>/spec.md` machine block: metric, direction, id, target,
-task_type, time/group keys), the frozen `folds.json`, the parent's `src/`, your node
-dir `nodes/node_NNNN/` (its `node.md` holds the plan), and the one-line change. Dates
-come from `date -u`; everything runs via `uv run`.
+The spec (`comps/<slug>/spec.md` fenced yaml machine block: metric,
+metric_direction, id_col, target_col/target_cols, task_type, time/group keys), the
+frozen `folds.json`, the parent's `src/`, your node dir `nodes/node_NNNN/` (its
+`node.md` holds the plan), and the one-line change. Dates come from `date -u`;
+everything runs via `uv run`.
 
 ## Build
 1. Copy the parent `src/` into your node dir, then apply **only** the one change —
@@ -30,8 +31,21 @@ come from `date -u`; everything runs via `uv run`.
    fits **every** transform on the train fold only, predicts the held fold → a full
    OOF, prints each per-fold score and a final `cv=<metric>` line, then refits on all
    train and writes `submission.csv` (header/ids byte-match `sample_submission.csv`),
-   plus the OOF array and `features.txt`. Never fit on full train or
-   `concat([train,test])`; time-series features stay past-only.
+   plus `oof.npy` (n_train×k) and `test_probs.npy` (n_test×k), rows aligned to the
+   frozen folds — they power free restack probes and revivals later. Never fit a
+   transform on full train or `concat([train,test])`; time-series features stay
+   past-only. Keep ALL cross-script intermediates inside the node dir — never /tmp
+   (/tmp is only for `.done` marker files; a reboot must not strand the node).
+
+## Pre-flight leakage checks (BEFORE launching training — seconds, no training run)
+Run checks 1–6 from the preloaded `kaggle-leakage` skill on the assembled feature
+matrix + your own code: target/id absent from the feature list (exact set-check);
+single-feature↔target sweep on a ≤50k sample (|corr| ≥ 0.999 ⇒ stop and inspect);
+read your own fold loop — every fitted transform and cross-row stat computed from
+train-fold rows only, walking each `fit_in_fold` set in `uses_data` explicitly
+(the final refit-on-all-train AFTER the OOF loop is correct and expected); folds
+loaded from the frozen `folds.json`; train↔test near-dup sample check. A leak
+caught here costs zero GPU. Only then launch the run.
 
 ## Write fast code (matters most for big / GPU models)
 - **Time one unit before the full run.** Run a single fold (or subsample/few epochs),
@@ -46,22 +60,25 @@ come from `date -u`; everything runs via `uv run`.
   on-GPU; `eval()`/`no_grad()` for inference. Stay under VRAM with margin (the card
   may be shared).
 - Pick context size / bags / epochs at the knee of accuracy-vs-cost, not the max.
+- LightGBM `boosting_type='dart'` is ~O(trees²) and ignores early-stopping — trim
+  to ~250 shallow trees or skip it; DART rarely earns blend weight anyway.
 
 ## Run it
 Background the run with a marker file (`DONE=/tmp/<slug>_node_NNNN.done`), `PYTHONUNBUFFERED=1` so logs survive a kill, and wait on `[ -f "$DONE" ]` (never `pgrep`).
 A traceback ⇒ `status: buggy`, stop, report. Don't re-launch a run that was killed.
 
 ## Gate it (test your own work — this is the only gate)
-After a clean run, check and record the result in `node.md`'s `gates:` block
+After a clean run, finish the `kaggle-leakage` self-checks on the OUTPUTS (no
+extra compute) and record the result in `node.md`'s `gates:` block
 `{schema_ok, oof_full, no_nan, dist_sane, leak_clean, cv_too_good, passed}`:
 - **submission** valid (`tools/validate_submission.py`) → `schema_ok`;
 - **OOF** covers every train row once, no NaN → `oof_full`, `no_nan`;
 - **distribution** sane (not collapsed/inverted/out-of-range) → `dist_sane`;
-- **leakage** — run `tools/leakage_scan.py` (exit 0 = clean) → `leak_clean`; a simple
-  inline check is fine where the scan doesn't cover the case (e.g. confirm a cross-row
-  / `fit_in_fold` feature was built from train-fold rows only). A leak **VOIDs** the
-  CV regardless of value → `leak: VOID`, `status: buggy`;
-- **cv-too-good** tripwire → `cv_too_good` (a warn, not a blocker).
+- **leakage** → `leak_clean` = the pre-flight checks (1–6) were all clean and
+  nothing about the feature pipeline changed since. Any error-level failure
+  **VOIDs** the CV regardless of value → `leak: VOID`, `status: buggy`;
+- **cv-too-good** judgment vs parent/baseline → `cv_too_good` (a warn for human
+  eyes — note it in `gate_note` — never a blocker).
 `passed` is true only when every required gate is true → `status: valid`.
 
 ## Record + return

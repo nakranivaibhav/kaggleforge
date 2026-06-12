@@ -27,13 +27,14 @@ Everything dated is derived live from the shell so a resume can't read stale sta
 
 ```bash
 today=$(date -u +%F)
-# budget: DERIVED from the append-only ledger (source of truth)
-uv run tools/kaggle_io.py budget --ledger "$C/submissions.md" --limit 5
+# budget: DERIVED from the append-only ledger; limit from spec.md (the single source)
+lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' "$C/spec.md")
+uv run tools/kaggle_io.py budget --ledger "$C/submissions.md" --limit "${lim:?spec.md lacks daily_submission_limit — kaggle-start must ask the human}"
 # cross-check the count the same way the contract defines it:
 used=$(grep -c "^| $today" "$C/submissions.md" 2>/dev/null || echo 0)
 ```
-- Read the **deadline** from `$C/spec.md` — it lives in the fenced machine block
-  (a `deadline:` field, ISO date). Grep it out; if absent, report "deadline: n/a".
+- Read the **deadline** from `$C/spec.md` — it lives in the fenced yaml machine
+  block (a `deadline:` field, ISO date). Grep it out; if absent, report "deadline: n/a".
 - Compute days left with the shell (never by hand), guarding a missing deadline:
 ```bash
 dl=$(grep -oiE 'deadline:[[:space:]]*([0-9]{4}-[0-9]{2}-[0-9]{2})' "$C/spec.md" \
@@ -44,7 +45,7 @@ fi
 ```
 - Print the header exactly in the contract's shape:
 ```
-today (UTC): <today>   submissions: <used>/5 (resets 00:00 UTC)   deadline: <dl|n/a> (<days_left|?> left)
+today (UTC): <today>   submissions: <used>/<lim> (resets 00:00 UTC)   deadline: <dl|n/a> (<days_left|?> left)
 ```
 If `days_left` is small (≤ ~2), add one line: "Deadline near." Surface it as
 information only; never wind down on your own — keep running experiments to climb
@@ -52,8 +53,8 @@ the leaderboard until the human explicitly stops you.
 
 ## 2 · Current stage (from progress.md)
 Read `$C/progress.md`. The stage checkboxes are the macro sequence
-(`understand · toolkit · eda · validation · experiment_plan · submit` flow per the
-stage table). Report:
+(`understand · toolkit · eda · validate · baseline · experiment`; the *gate*
+sequence in CLAUDE.md is a separate vocabulary). Report:
 - the **first unticked** stage = where the comp currently is;
 - the autonomy mode from `$C/config.md` (`interactive` / `auto_except_submit` /
   `full_auto`) and what it pauses at.
@@ -82,18 +83,16 @@ Follow the resume model end-to-end and state **one concrete next action**:
    skill>`" (e.g. unchecked `validation` → `/kaggle-validate`).
 3. If at the **experiment** stage → read `graph.md` to rebuild the frontier, then:
    - If a node is `running`: open `$C/nodes/<id>/node.md`, read its `stage` field
-     (`proposed → built → scored → reviewed → decided → submitted`), and say
-     "resume node `<id>` at: `<next stage after `stage`>` → `<the artifact that
-     stage produces>`" (e.g. `built` with null `cv` ⇒ resume at *score*). If that
+     (`proposed → built → reviewed → decided`), and say "resume node `<id>` at:
+     `<next stage after `stage`>` → `<the artifact that stage produces>`" (e.g.
+     `built` with null `cv` ⇒ re-run the scoring step inside the build). If that
      node's `stage` is past `proposed` **but no artifacts are on disk**, say it's
      stale → "mark `<id>` dead and pick the next operator" (don't resume a ghost).
-   - If nothing is `running`: apply the search policy to name the next operator —
-     **draft** while valid-root count < 4; else **debug** an open `buggy` node
-     (regenerate after 3 failed attempts, prune to `dead` after 5); else
-     **improve** the champion with one atomic change. State which and why in a
-     sentence.
-4. If `submissions: 5/5` for today, add: "submission budget spent — resets 00:00
-   UTC; CV work can continue, no submit until reset."
+   - If nothing is `running`: apply the search policy (single home:
+     `.claude/agents/kaggle-proposer.md`) to name the next operator; state which
+     and why in a sentence.
+4. If `submissions: <lim>/<lim>` for today, add: "submission budget spent — resets
+   00:00 UTC; CV work can continue, no submit until reset."
 
 Verify a node's `stage` against the artifacts it implies before trusting it
 (artifact-then-mark): a `stage` past the file that proves it is a lie — report the

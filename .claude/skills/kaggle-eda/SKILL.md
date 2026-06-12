@@ -24,10 +24,11 @@ is proven by its test passing, not by a tick.
 1. `today=$(date -u +%F)`. Read `$C/progress.md`; confirm `eda` is the first
    unticked stage. If `understand`/`toolkit` are unticked, stop and tell the
    human to run `/kaggle-start` first.
-2. Read `$C/spec.md` — especially its fenced machine block. Pull: `task_type`,
-   `metric` (+ direction), `target`, `id_col`, and any `time_col` / `group_key`
-   the spec flagged. These are the leakage-hazard candidates EDA must confirm or
-   refute, and they feed `tools/make_folds.py` at the next stage.
+2. Read `$C/spec.md` — especially its fenced ```yaml machine block. Pull:
+   `task_type`, `metric` (+ `metric_direction`), `target_col`, `id_col`, and any
+   `time_col` / `group_key` the spec flagged. These are the leakage-hazard
+   candidates EDA must confirm or refute, and they feed `tools/make_folds.py` at
+   the next stage.
 3. Confirm data is present: `ls $C/data/`. If only zips, unzip first
    (`uv run python -c "import zipfile,glob,sys; [zipfile.ZipFile(z).extractall('$C/data') for z in glob.glob('$C/data/*.zip')]"`).
    If no data at all, the `toolkit` stage didn't download it — stop and say so.
@@ -74,9 +75,9 @@ parallel, one per angle, then synthesize. Give each the spec path, data dir, and
 its single angle:
 - **missingness** — pattern of NaNs (MCAR vs structural), cols to drop vs impute;
 - **distributions** — skew/outliers/transform candidates per numeric col;
-- **target relationship** — which features move the target (mutual info / simple
+- **target-relationship** — which features move the target (mutual info / simple
   group-means), without fitting on full data;
-- **leakage hazards** — id/time/group/duplicate audit as above.
+- **leakage-hazards** — id/time/group/duplicate audit as above.
 
 Subagents run read-only-ish and **cannot pause for the human**; you collect their
 returns and reconcile conflicts. If the data is small/simple, skip the fan-out
@@ -129,19 +130,15 @@ modelling node's fold loop, not a global clean — note that in eda.md and don't
 apply it globally.
 
 ## 5. Gate: the EDA Decision Card
-Render the card (CLAUDE.md format), then obey the autonomy dial in `$C/config.md`
-(`interactive` waits here; `auto_except_submit`/`full_auto` proceed):
-
-```
-📋 eda
-What's going on:   Looked at the data and wrote down what needs cleaning.
-Found / propose:   <3–4 plain bullets: target balance, top missing cols, the one
-                   leakage hazard that sets the CV scheme, # cleaning steps coded+tested>
-Why:               Clean, leak-free inputs before we freeze the CV split.
-Cost:              <minutes> · CPU only · 0 submissions
-Your call:         [Approve] [Change something] [Skip] [Tell me more]
-Autonomy: <mode> — <waiting | proceeding>
-```
+Render the card in the CLAUDE.md Decision Card format, then obey the autonomy dial
+in `$C/config.md` (`interactive` waits here; `auto_except_submit`/`full_auto`
+proceed). Stage-specific content:
+- **stage:** eda
+- **What's going on:** Looked at the data and wrote down what needs cleaning.
+- **Found / propose:** <3–4 plain bullets: target balance, top missing cols, the
+  one leakage hazard that sets the CV scheme, # cleaning steps coded+tested>
+- **Why:** Clean, leak-free inputs before we freeze the CV split.
+- **Cost:** <minutes> · CPU only · 0 submissions
 
 On approve/proceed: tick the `eda` stage box in `$C/progress.md` (only now), and
 append one UTC-stamped line to `$C/journal.md`:

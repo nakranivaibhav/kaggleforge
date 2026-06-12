@@ -24,7 +24,8 @@ same shell that runs the tool. Set both, then call:
 
 ```bash
 export KAGGLE_USERNAME="$KAGGLE_USERNAME" KAGGLE_KEY="$KAGGLE_KEY"   # from the human's secrets
-uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md
+lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)
+uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit "$lim"
 ```
 
 - The tool's `ensure_auth()` accepts **either** `KAGGLE_USERNAME`+`KAGGLE_KEY`
@@ -71,9 +72,11 @@ uv run tools/kaggle_io.py submit <slug> \
 ```
 Submission scoring is **async** — `submit` only enqueues. Poll with
 `submissions` for the public score. Budget-gate **before** calling this (see
-`/kaggle-submit`): ~5 submissions/day/team, resets 00:00 UTC. A *server-rejected*
-submission does **not** burn quota — safe to fix and resubmit. After a real
-submit, append a UTC-timestamped row to `comps/<slug>/submissions.md`.
+`/kaggle-submit`): the per-comp daily limit comes from spec.md's
+`daily_submission_limit` (asked from the human at kaggle-start), resets 00:00 UTC.
+A *server-rejected* submission does **not** burn quota — safe to fix and resubmit.
+After a real submit, append a UTC-timestamped row to `comps/<slug>/submissions.md`
+(5 columns: `| ts | node | cv | lb | note |`).
 
 ### submissions — list past submissions + their scores (poll here)
 ```bash
@@ -91,15 +94,18 @@ noisy slice — a CV↔LB gap is a *diagnostic to surface*, never an auto-demote
 trigger (CLAUDE.md rule 6).
 
 ### budget — today's used/remaining, DERIVED from the ledger
+`--limit` is **required** (no default) — the limit comes from spec.md's
+`daily_submission_limit` (asked from the human at kaggle-start), never a literal:
 ```bash
-uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md            # default limit 5
-uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit 5
+lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)
+uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit "$lim"
 ```
 Counts rows in `submissions.md` whose UTC date == today (today via the tool's
 own `datetime.now(timezone.utc)`, matching the `date -u` rule). The count is
 **computed at read time**, never stored, so it can't drift across a resume.
-Prints e.g. `2026-06-05  2/5 used  (3 remaining, resets 00:00 UTC)`. A row
-counts only if it starts with `| <YYYY-MM-DD` — keep the ledger in that format.
+Prints e.g. `2026-06-05  2/<lim> used  (<lim>−2 remaining, resets 00:00 UTC)`. A
+row counts only if it starts with `| <YYYY-MM-DD` — keep the ledger in that
+5-column format (`| ts | node | cv | lb | note |`).
 
 ### classify-error — decode a Kaggle error string
 ```bash

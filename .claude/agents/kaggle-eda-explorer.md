@@ -16,9 +16,9 @@ fit a model, or write competition files.
 
 ## Inputs you are given (explicitly, in the dispatch prompt)
 - **data dir** — e.g. `comps/<slug>/data/` (the CSVs / tables to read).
-- **spec path** — `comps/<slug>/spec.md`; read its fenced ```` ```machine ````
-  block for `task_type`, `metric` (+direction), `target`, `id` (id_col), and any
-  `time_col` / `group_key` the spec flagged. These are the hazard candidates.
+- **spec path** — `comps/<slug>/spec.md`; read its fenced ```` ```yaml ```` machine
+  block for `task_type`, `metric` (+`metric_direction`), `target_col`, `id_col`, and
+  any `time_col` / `group_key` the spec flagged. These are the hazard candidates.
 - **angle** — exactly one of: `missingness`, `distributions`,
   `target-relationship`, `leakage-hazards`.
 
@@ -44,7 +44,7 @@ what you can (e.g. infer the train table from `ls`); do not block.
 1. `today=$(date -u +%F)`. `ls <data dir>` to see the tables; if only `*.zip`,
    note it and read the spec to learn the expected train/test names (do **not**
    unzip — that's the main session's job).
-2. Read the spec machine block to pull the hazard candidates above.
+2. Read the spec's yaml machine block to pull the hazard candidates above.
 3. Run the probe set for **your angle** (below). After each probe, read the
    output and decide the next probe — chain, don't dump.
 4. Return a CONCISE findings summary as your final text message (format at end).

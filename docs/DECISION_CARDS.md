@@ -7,25 +7,18 @@ autonomy dial. Write for a smart non-specialist. No jargon, no acronyms left
 unexplained, no in-chat thumbnails as proof — report numbers and file paths and
 let the human open files at full resolution.
 
-This doc is the reference. It (1) restates the card format from `CLAUDE.md`,
-(2) shows three filled-in cards for the **House Prices** competition
+This doc is the reference. It (1) shows three filled-in cards for the **House
+Prices** competition
 (`kaggle.com/competitions/house-prices-advanced-regression-techniques`), and
-(3) documents exactly how the autonomy dial behaves at each gate and how the
-human flips it by voice.
+(2) documents the per-field reasoning behind a good card. The canonical card
+*format* lives in CLAUDE.md's "Decision Card format" — this doc never re-pastes it.
 
 ---
 
-## The card format (verbatim from `CLAUDE.md`)
+## The card format
 
-```
-📋 <stage>
-What's going on:   <one plain sentence, no jargon>
-Found / propose:   <2–4 plain bullets>
-Why:               <one line>
-Cost:              <time · compute · submissions out of the daily 5>
-Your call:         [Approve] [Change something] [Skip] [Tell me more]
-Autonomy: <mode> — <waiting | proceeding>
-```
+The canonical format block lives in CLAUDE.md "Decision Card format"; below is only
+the per-field reasoning that goes beyond it.
 
 Field rules:
 - **`<stage>`** is one of the six gates, in order: `understand · toolkit · eda ·
@@ -35,7 +28,8 @@ Field rules:
   do next. Numbers belong here, with units and direction ("lower is better").
 - **Why** — one line of justification, in plain words.
 - **Cost** — always three parts: wall-clock time · compute · submissions used out
-  of the daily 5. If a card spends no submission, say `0 submissions`.
+  of the daily limit (spec.md `daily_submission_limit`). If a card spends no
+  submission, say `0 submissions`.
 - **Your call** — the four standing options. `[Tell me more]` means "expand this
   card with detail / file paths," it is not a separate decision.
 - **Autonomy line** — the current mode and whether this card is *waiting* for the
@@ -45,9 +39,10 @@ The card is a readout, not a place to do work. The work already happened; its
 artifacts are on disk (`spec.md`, `eda.md`, `validation.md`, `graph.md`,
 `submissions.md`, the node folders). The card points at them.
 
-The "daily 5" in **Cost** is derived, never typed from memory:
+The budget in **Cost** is derived, never typed from memory (limit from spec.md):
 ```bash
-uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md
+lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)
+uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit "$lim"
 # -> 2026-06-05  2/5 used  (3 remaining, resets 00:00 UTC)
 ```
 and "today" for that line comes from `date -u +%F`, never your own sense of the
@@ -174,8 +169,8 @@ Found / propose:   • Candidate: node_0012 (LightGBM + target-encoded
                    • File data/.../node_0012/submission.csv passed the format
                      check: columns Id,SalePrice, 1459 rows, no blanks, ids match
                      sample_submission.csv.
-                   • Leakage suite: clean (fit-inside-fold, target, id/order,
-                     shuffled-label control all pass).
+                   • Leakage self-check: clean (fit-inside-fold, target,
+                     id/order all pass).
 Why:               It clears local CV by well over fold-noise and the file is
                    valid and leak-clean — the bar for spending a slot.
 Cost:              ~10s to upload + poll for the public score · no training ·
@@ -220,50 +215,7 @@ Notes:
 
 ## Autonomy dial — behavior at each gate
 
-The dial lives in `comps/<slug>/config.md` and is flipped any time by voice. The
-six gates, in order, are: `understand · toolkit · eda · validation ·
-experiment_plan · submit`.
-
-| mode | pauses (card **waits**) at | runs through (card **proceeds**) | use when |
-|---|---|---|---|
-| `interactive` *(default)* | **every** gate | — | new comp, still learning the data |
-| `auto_except_submit` | `understand` + `submit` only | `toolkit · eda · validation · experiment_plan` | the experiment grind |
-| `full_auto` | nothing | every gate, `submit` included | walk away |
-
-Two gates are special and **stay human** except in `full_auto`:
-- **`understand`** — a wrong reading of the metric poisons every later number, so
-  a human confirms it once.
-- **`submit`** — the only irreversible, rate-limited, public action; a human
-  approves spending a slot.
-
-What "waiting" vs "proceeding" means on the card:
-- **waiting** — the card is emitted and the session stops; nothing past this gate
-  runs until the human responds with one of `[Approve] [Change something] [Skip]
-  [Tell me more]`.
-- **proceeding** — the card is emitted **for the record** (it still lands in the
-  log / journal) and the session keeps going to the next stage without a pause.
-
-Important structural fact (from `CLAUDE.md`): **neither subagents nor the
-workflow can pause for a human — only the main session can.** So every gated
-stage runs in the main session via its skill; only the non-gated experiment grind
-is handed to subagents / the `propose-loop` workflow. The main session orchestrates
-propose → register → build every proposal → gate → decide; in `auto_except_submit`
-it asks the human before submitting; in `full_auto` it submits within budget.
-
-### Flipping the dial by voice
-
-The human changes the mode by just saying it — no command, no syntax. When they
-do, **update `comps/<slug>/config.md`** so the new mode survives a resume.
-
-| the human says (any phrasing like this) | new mode |
-|---|---|
-| "go auto", "run it", "walk away", "do the whole thing" | `full_auto` |
-| "auto but ask me before submitting", "grind but check with me to submit" | `auto_except_submit` |
-| "pause", "ask me each step", "slow down", "let me see everything" | `interactive` |
-| "stop", "hold on", "wait" (mid-grind) | drop to `interactive` and emit the current card as **waiting** |
-
-After flipping, acknowledge in one plain line what changed and which gates now
-pause, e.g.: *"Switched to auto_except_submit — I'll grind through eda /
-validation / planning on my own and only stop to confirm the metric and before
-each real submission."* Then write the new mode into `config.md` (artifact-then-
-acknowledge), and continue or wait per the new dial.
+The three modes, what each pauses at, and how the human flips the dial by voice are
+all defined in CLAUDE.md's "Autonomy dial" table — see there. The dial decides
+whether each card above **waits** for the human or is emitted **for the record** and
+**proceeds**.

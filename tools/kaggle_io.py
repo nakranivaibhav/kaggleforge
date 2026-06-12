@@ -15,7 +15,8 @@ Usage:
     uv run tools/kaggle_io.py submit <slug> --file sub.csv --message "node_7 cv=0.12"
     uv run tools/kaggle_io.py submissions <slug>
     uv run tools/kaggle_io.py leaderboard <slug>
-    uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md [--limit 5]
+    uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md \
+        --limit <daily_submission_limit from spec.md — the single source of truth>
     uv run tools/kaggle_io.py classify-error --text "403 Forbidden"
     uv run tools/kaggle_io.py --selftest
 """
@@ -125,11 +126,12 @@ def cmd_passthrough(verb: list[str]) -> int:
     return r.returncode
 
 
-def read_budget(ledger: str, limit: int = 5) -> dict:
+def read_budget(ledger: str, limit: int) -> dict:
     """Count today's (UTC) submissions from the append-only markdown ledger.
 
     A row counts as a submission if it starts with `| <YYYY-MM-DD`. The count is
-    DERIVED, never stored, so it can't drift across a resume.
+    DERIVED, never stored, so it can't drift across a resume. `limit` comes from
+    spec.md's `daily_submission_limit` — there is deliberately no default here.
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     used = 0
@@ -203,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("submit"); s.add_argument("slug"); s.add_argument("--file", required=True); s.add_argument("--message", required=True)
     sm = sub.add_parser("submissions"); sm.add_argument("slug")
     lb = sub.add_parser("leaderboard"); lb.add_argument("slug")
-    bg = sub.add_parser("budget"); bg.add_argument("--ledger", required=True); bg.add_argument("--limit", type=int, default=5)
+    bg = sub.add_parser("budget"); bg.add_argument("--ledger", required=True); bg.add_argument("--limit", type=int, required=True, help="daily_submission_limit from spec.md")
     ce = sub.add_parser("classify-error"); ce.add_argument("--text", required=True)
 
     a = p.parse_args(argv)

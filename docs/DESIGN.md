@@ -1,5 +1,7 @@
 # kaggleforge — design & rationale
 
+> Operating rules live in CLAUDE.md — this file is only the *why* (research lineage + rationale). Where this file used to restate rules, it now points.
+
 This is the *why* behind the playbook. The standing contract is `CLAUDE.md`; the
 procedures are the skills in `.claude/skills/`; the workers are the subagents in
 `.claude/agents/`; the proposer↔critic refinement loop is
@@ -21,10 +23,11 @@ developer/reviewer cast. Its two empirically-load-bearing parts are (a) a
 **validated tools library** the agents call instead of re-deriving boilerplate,
 and (b) **per-phase unit tests**: the paper reports its *completion* rate rising
 from **0.10 → 0.85** once each phase had to pass its own tests before the next
-began. We took both. Our `tools/` (make_folds, leakage_scan, validate_submission,
-kaggle_io) *is* the validated library; "every node — including data-cleaning and
-feature nodes — clears the unit-test + leakage suite before its CV counts"
-(CLAUDE.md) is the per-phase-test discipline applied at node granularity. We did
+began. We took both. Our `tools/` (make_folds, validate_submission, kaggle_io)
+*is* the validated library; "every node — including data-cleaning and feature nodes
+— clears the unit-test + leakage self-check before its CV counts" (CLAUDE.md) is the
+per-phase-test discipline applied at node granularity (the leakage check is the
+developer's fast self-gate, §5, not a standing tool). We did
 **not** keep the rigid linear phase chain — see AIDE.
 
 **AIDE (arXiv:2502.13138)** — a *single-agent best-first **solution-tree
@@ -116,14 +119,9 @@ The experiment graph (`graph.md`) is the search and the memory at once (the AIDE
 idea, arXiv:2502.13138, generalised from a tree to a **DAG**). **Every node is one
 atomic change** so every CV delta is attributable, and it **attaches to the
 deepest ancestor(s) whose work it keeps** — most nodes have one parent, but a
-`combine` node merges several:
-
-| change | operator | parents |
-|---|---|---|
-| whole new approach / model family / framing | **draft** | `root` |
-| build on a working solution (add feature, swap a part, tune) | **improve** | the 1 node it builds on |
-| fix a broken node | **debug** | the 1 buggy node |
-| blend / ensemble / stack several nodes | **combine** | the 2+ nodes it merges |
+`combine` node merges several. The four operators (draft / improve / debug /
+combine) and their parent rules are defined in CLAUDE.md's "Experiment graph"
+section — see there for the table.
 
 - The **toolkit gate seeds the root drafts**: "use Darts" and "LightGBM on lag
   features" are two drafts off `root` — two families, not two experiments inside
@@ -141,16 +139,12 @@ deepest ancestor(s) whose work it keeps** — most nodes have one parent, but a
   `graph.md` is the Mermaid DAG + table that maps them. **The statuses are the
   search frontier**, so a restart rebuilds the frontier by reading `graph.md`.
 
-**Search policy (operator selection each round):** draft while valid-root-families
-< `num_drafts` (default 4) → else debug the shallowest buggy node within depth
-(≤5 attempts; regenerate from scratch after 3 fails; prune to `dead` after 5) →
-else improve the best valid node with exactly one atomic change, A/B'd against its
-parent and rejected on CV regress → else combine 2+ valid, de-correlated nodes when
-a blend's OOF beats the best single. The **`kaggle-proposer`** agent applies this
-policy to draft N independent proposals each round; the **`kaggle-proposal-reviewer`**
-critiques them (the `propose-loop` workflow runs that refinement); then the
-orchestrator builds **every** confirmed proposal — there is no best-first
-frontier-expansion controller that picks which to expand.
+**Search policy (operator selection each round).** The full policy lives in its
+single home, `.claude/agents/kaggle-proposer.md` — that agent applies it to draft N
+proposals each round, the `kaggle-proposal-reviewer` critiques them (the
+`propose-loop` workflow runs that refinement), and the orchestrator builds **every**
+confirmed proposal; there is no best-first frontier-expansion controller that picks
+which to expand.
 
 **Data lineage (`data.md`).** `graph.md` is *experiment* lineage (node → parent);
 `data.md` is its *data* companion — the engineered feature-sets (`raw → base → fs_*`)
@@ -159,9 +153,10 @@ The load-bearing part is the per-set **leak-safety class**: `stateless` (row-wis
 fit — reusable as-is) vs `fit_in_fold` (a fitted transform or a **cross-row** stat —
 target-encode, scaler, kNN density, group aggregate — built inside the train fold
 only). This is not just bookkeeping: a *label-free* cross-row feature fit on the
-whole train slips past the shuffled-label control yet still leaks, so the class is
-what catches it. The proposer reuses a feature-set before re-engineering one and the
-developer obeys the class; the leakage suite still enforces the result.
+whole train leaks even though it never touches the label — a static check can't see
+it — so the `fit_in_fold` leak-safety class is precisely what flags it. The proposer
+reuses a feature-set before re-engineering one and the developer obeys the class,
+building the reference from train-fold rows only.
 
 ---
 
@@ -175,13 +170,8 @@ resolution (a lesson carried straight from the neural-ring-detector memory —
 in-chat thumbnails hide 10-px offsets).
 
 The **autonomy dial** (stored in `config.md`, flipped any time by voice) decides
-which gates actually pause:
-
-| mode | pauses at |
-|---|---|
-| `interactive` (default) | **every** gate — new comp, learning the data |
-| `auto_except_submit` | only `understand` + `submit` — the experiment grind |
-| `full_auto` | nothing — walk away |
+which gates actually pause — its three modes and what each pauses at are tabulated
+in CLAUDE.md's "Autonomy dial" table.
 
 `understand` and `submit` are the two gates kept human except in `full_auto`,
 for the reasons in §2 (metric-poisoning, irreversibility). The dial is the single
@@ -201,21 +191,21 @@ frozen once and policed hard.
   split.** Output is `folds.json` (positional integer indices). Carve an inviolable
   holdout never touched in training or feature-fit.
 - **Fit inside the fold.** Every transform (scaler/encoder/imputer/target-encoder/
-  selector) is fit on the train fold only — `make_folds.py` writes indices, the
-  node's harness loops them, and `leakage_scan.py`'s static scan flags a global
-  `.fit(` on full/concatenated train+test (`uv run tools/leakage_scan.py …`).
-- **The surviving suite** (each a check in `tools/leakage_scan.py`, void-on-fail
-  for `error` severity): fit-inside-fold, target leakage (no feature with
-  near-perfect correlation to the target; target absent from features),
-  id/order leakage, group leakage, temporal leakage (past-only lags/rolling, no
-  centered windows, no global stats), duplicate detection (train↔test), and the
-  CV-too-good tripwire.
-- **Leakage gating is the static `tools/leakage_scan.py` scan only** (its exit code
-  is the gate). The per-node shuffled-label control was removed — it permuted labels
-  and refit the model, doubling compute on slow NN/foundation nodes for a check the
-  static scan covers. The `kaggle-developer` runs the scan as part of its self-gate;
-  `fit_in_fold` cases the scan can't see (a cross-row stat fit on full train) are
-  caught by building the reference from train-fold rows only.
+  selector) is fit on the train fold only — `make_folds.py` writes the indices and
+  the node's harness loops them.
+- **The developer self-gates leakage — there is no standing scanner tool.** There is
+  no `tools/leakage_scan.py`; instead `kaggle-developer` runs a handful of fast
+  data/output checks (seconds, never a training run) on the node it just built:
+  target and id absent from the feature list; a quick single-feature-vs-target
+  correlation sweep on a sample (nothing implausibly perfect); reading its own fold
+  loop to confirm every transform / cross-row stat is fit inside each train fold
+  only; then OOF coverage, no-NaN, and distribution sanity, and a cv-too-good
+  judgment versus the parent. A leak still **VOIDs** the node's CV — the score does
+  not count.
+- **Group and temporal leakage are prevented upstream, not re-scanned per node.**
+  `tools/make_folds.py` picks the group/time-correct split and the frozen
+  `folds.json` keeps a group key from straddling folds and keeps lags/rolling
+  past-only — so the developer's per-node self-checks don't have to re-derive them.
 - **CV↔LB is a diagnostic, not a trigger.** A gap is *logged and surfaced*, never
   auto-acted; chasing the public LB causes private shake-up. **Trust a well-built
   CV over the public LB** (CLAUDE.md Hard rule 6). A submission slot only goes to
@@ -235,34 +225,16 @@ not good**, and its CV does not count.
 ## 6 · The resume model
 
 A competition spans days and gets resumed, so state must survive a cold start
-with zero in-context memory. Two rules make that safe.
+with zero in-context memory — which is the whole reason state lives in artifacts on
+disk rather than the context window. The mechanics (the two resume surfaces, the
+artifact-then-mark rule, and the per-node `stage` lifecycle) are specified in
+CLAUDE.md's "Resume model" section — see there for the rule text.
 
-- **Two resume surfaces**, both grounded in artifacts (never trust a label over
-  the file it names):
-  - **`progress.md`** (macro) — the one-time setup checklist + stage checkboxes +
-    a derived header. Re-entry resumes at the first unticked stage.
-  - **`node.md`** (micro) — the one converged node record (frontmatter = plan +
-    metrics + gate booleans, body = plan prose; one file replacing the old
-    node-record / metrics / gate-report trio, **no checkboxes**). Its **`stage`**
-    field is the per-node lifecycle: `proposed → built → scored → reviewed →
-    decided → submitted`. A `running` node resumes from its `stage` (e.g. `built`
-    with no `cv` ⇒ resume at *score*).
-- **Artifact-then-mark** (CLAUDE.md Hard rule 5): do the work → write the artifact
-  (src/solution.py, train.log, leakage_scan.json, the `cv`/`gates` fields,
-  submission.csv) → *then* advance `stage`. A stage with no backing artifact can
-  never mislead — you verify against the artifact, and a stage claimed without one
-  is a lie to be redone. A `running` node with no artifacts is marked `dead`.
-- **Everywhere else is status or append-only:** the `graph.md` map + node `status`
-  fields *are* the frontier; `journal.md` and `submissions.md` are append-only logs.
-- **Dates from `date -u` UTC, never memory** (`date -u +%Y-%m-%dT%H:%MZ`); your
-  sense of "today" is stale on resume.
-- **Budget & deadline are derived, never stored as a mutable counter.**
-  `submissions.md` is the append-only UTC-timestamped ledger; "used today" is
-  *computed* at read time (`grep -c "^| $(date -u +%F)" …submissions.md`, or
-  `uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md`), so it
-  can't drift across a resume. `progress.md`'s header is regenerated on read;
-  `days_left = deadline − today`; when it shrinks, it's surfaced but the loop keeps
-  experimenting — there is no "finish" stage; the loop runs until the human stops it.
+**Why derived, never a stored counter.** Budget and deadline are *computed* from the
+append-only `submissions.md` ledger at read time (the exact formulae are in CLAUDE.md
+"Budget & deadline") precisely so they can't drift across a resume — a mutable
+counter would. The deadline is surfaced when it shrinks but never triggers a wind-
+down: there is no "finish" stage, the loop runs until the human stops it.
 
 The canonical restart path is `/kaggle-status`: read `progress.md` → find the
 in-progress stage → if experiments, read the `graph.md` map to rebuild the
@@ -307,10 +279,10 @@ right (`understand`) and spending an irreversible public slot (`submit`).
   (arXiv:2410.07095); a single comp is far less, but a stalled tree can burn time
   for nothing. The ≥2-families / pivot-after-5-stalled-improves rule is the
   circuit-breaker; the deadline-derived header is the hard stop.
-- **The CV can still lie.** The leakage suite catches the common modes, but a
-  novel leak (a sneaky group key, a time-ordered id) can slip the static scan.
-  The shuffled-label control is the backstop; when CV looks too good, the tripwire
-  forces human eyes before a slot is spent.
+- **The CV can still lie.** The developer's self-checks catch the common modes, but
+  a novel leak (a sneaky group key, a time-ordered id) can slip a fast check. When CV
+  looks too good, the cv-too-good tripwire — a developer judgment recorded in
+  `node.md` versus the parent — forces human eyes before a slot is spent.
 - **Public-LB temptation.** The single most common self-inflicted loss is chasing
   the public LB into a private shake-up. The discipline (trust CV, log-don't-act
   on the gap, slot only for a CV win) is a guardrail, not a guarantee — a human in
