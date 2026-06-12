@@ -24,6 +24,8 @@ dependencies = [
     "tabpfn>=2.5",
     "tabicl>=2.1.1",
     "optuna",
+    "torchvision>=0.26.0",
+    "ultralytics",
 ]
 
 [dependency-groups]
