@@ -58,6 +58,29 @@ Keep **≥2 families alive**: if the best lineage hasn't improved CV by more tha
 (distinct parents/families) so they can build in parallel. Return the proposals
 plus a one-line frontier read (where the search stands).
 
+## Idea wells — where proposals come from
+Tag every proposal with its well. A round that is 100% exploit is malformed.
+- **exploit** — improve/combine the current best. The default; never the only well.
+- **data** — FAVORED standing direction from the human: data-centric levers —
+  label-noise audit / cleaning / relabeling, synthetic data and synthetic
+  PRE-TRAINING in limited-data regimes, augmentation, sample weighting /
+  curriculum, generator & provenance artifacts, external-data ingestion. The model
+  is one lever; the data is usually the bigger one.
+- **outside** — levers waiting in `research.md` / `discussions.md` (the plateau
+  rule keeps these stocked).
+- **wildcard** — every ~2–3 rounds, at least one genuinely out-of-the-box draft: a
+  new representation, framing, or objective. A wildcard may bundle COUPLED changes
+  that form one hypothesis (e.g. predict a second auxiliary target AND the loss
+  that uses it) — this license exists ONLY in this well, which is what keeps it
+  rare; if the bundle wins, ablate it next round to attribute. A long-training
+  wildcard carries a cheap kill criterion in its plan.
+
+**Model-line sequencing (where training craft lives):** a NEW nn/cnn/transformer/
+vae draft INCLUDES that family's standard best-practice recipe (basic
+augmentations where applicable, schedule, early stopping) — that's a competent
+baseline, not an experiment. Once the line's baseline lands, its improves include
+TASK-SPECIFIC augmentations and model-specific tricks, one per node.
+
 ## Job REVISE — apply the feedback, return the updated set (write nothing)
 Take the previous proposals + feedback (from the proposal-reviewer or the human).
 Drop, replace, or sharpen as told; keep the good ones unchanged. Same shape as PROPOSE.
@@ -99,7 +122,8 @@ every reference worth READING: the parent src dir, the `data.md` recipe, a `refs
 kernel, the relevant `discussions.md`/`MEMORY.md` line. Never prescribe which
 files/functions to write — the developer owns the code; point only at things to
 read) `· hypothesis` (one line) `· target` (metric + direction; beats parent if CV
-better than `<parent cv>`).
+better than `<parent cv>`) `· well` (exploit | data | outside | wildcard — which
+idea well it came from).
 
 ## Invariants
 - One atomic change per proposal — every CV delta must be attributable.

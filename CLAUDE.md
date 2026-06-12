@@ -99,7 +99,11 @@ non-gated experiment grind runs as subagents / the workflow.
    days and gets resumed — your sense of "today" will be stale.
 3. **Leakage voids a score.** A node that leaks does not count, no matter how
    good its CV. Leakage checks are a gate, not a warning.
-4. **One atomic change per node**, so every CV delta is attributable.
+4. **One atomic change per node**, so every CV delta is attributable. "Atomic" =
+   one *hypothesis*, not necessarily one literal edit: a rare **wildcard** may
+   bundle coupled changes that only make sense together (e.g. an auxiliary second
+   target + the loss that trains it) — that is ONE hypothesis; if it wins, ablate
+   the bundle next round to recover attribution.
 5. **Artifact-then-mark.** Do the work → write the artifact → *then* mark it done
    (tick a `progress.md` stage box, or advance a node's `stage` field). A mark
    never runs ahead of the file it names.
@@ -265,8 +269,10 @@ edit it there, not here. Summary: **draft** until 4 valid root families exist �
 buggy nodes (≤5 attempts) → **improve** the best valid node (one atomic change, A/B vs
 parent) → **combine** de-correlated nodes when a blend's OOF beats the best single;
 periodically **revive** discarded nodes (a re-examination habit that emits a normal
-draft/improve/combine — not a 5th operator). The orchestrator builds **every** confirmed
-proposal; there is no best-first frontier-expansion controller.
+draft/improve/combine — not a 5th operator). Proposals draw from four **idea wells**
+— exploit · data-centric (favored) · outside · wildcard — defined in the proposer
+file. The orchestrator builds **every** confirmed proposal; there is no best-first
+frontier-expansion controller.
 
 ---
 

@@ -29,10 +29,11 @@ Graph: ${ROOT}/graph.md. Journal: ${ROOT}/journal.md. Cross-comp lessons: MEMORY
 
 const PROPOSAL = {
   type: 'object', additionalProperties: false,
-  required: ['slot', 'op', 'parents', 'parent_src', 'family', 'desc', 'uses_data', 'change', 'context', 'hypothesis', 'target'],
+  required: ['slot', 'op', 'parents', 'parent_src', 'family', 'desc', 'uses_data', 'change', 'context', 'hypothesis', 'target', 'well'],
   properties: {
     slot: { type: 'integer', description: 'stable 1-based handle for this proposal' },
     op: { type: 'string', enum: ['draft', 'improve', 'debug', 'combine'] },
+    well: { type: 'string', enum: ['exploit', 'data', 'outside', 'wildcard'], description: 'the idea well this proposal came from (see kaggle-proposer.md) — a round must not be 100% exploit' },
     parents: { type: 'array', items: { type: 'string' }, description: '["root"] for a draft; the 1 node for improve/debug; the 2+ merged nodes for combine' },
     parent_src: { type: 'string', description: 'repo-relative dir to copy from, e.g. comps/<slug>/champion/src or comps/<slug>/nodes/node_0006/src' },
     family: { type: 'string', description: 'gbdt|nn|linear|darts|ensemble|baseline' },
@@ -86,7 +87,8 @@ ${ROOT}/spec.md, and the relevant MEMORY.md lines first.
 Each proposal: slot, op, parents, parent_src (dir to copy), family, desc (≤8 words), uses_data (data.md fs_ ids
 it consumes; [] = base only; name any NEW set fs_<name> in change with its leak-safety class), change (the ONE
 atomic change), context (free-form — the developer's spec: the concrete HOW + every reference worth READING;
-never which files to write), hypothesis, target. Write NOTHING. Return ONLY the structured object.`
+never which files to write), hypothesis, target, well (exploit|data|outside|wildcard — tag the idea well per
+kaggle-proposer.md; never 100% exploit). Write NOTHING. Return ONLY the structured object.`
 
 const critiquePrompt = (proposals) => `${STANDING}
 

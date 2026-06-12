@@ -66,10 +66,19 @@ caught here costs zero GPU. Only then launch the run.
 - Pick context size / bags / epochs at the knee of accuracy-vs-cost, not the max.
 - LightGBM `boosting_type='dart'` is ~O(trees²) and ignores early-stopping — trim
   to ~250 shallow trees or skip it; DART rarely earns blend weight anyway.
+- **Family best practices are part of the build, not the experiment.** When the
+  family benefits from training craft (cnn / transformer / vae / tabular NN),
+  apply its standard recipe by default — basic augmentations where applicable, LR
+  schedule/warm-up, early stopping, input normalization — and note what you used
+  in `node.md`. Don't bolt on task-specific or exotic tricks the plan didn't name
+  — those are future nodes.
 
 ## Run it
 Background the run with a marker file (`DONE=/tmp/<slug>_node_NNNN.done`), `PYTHONUNBUFFERED=1` so logs survive a kill, and wait on `[ -f "$DONE" ]` (never `pgrep`).
 A traceback ⇒ `status: buggy`, stop, report. Don't re-launch a run that was killed.
+If the timing probe projects a **long run** and the plan names a kill criterion,
+run the kill check first (fold-0 / subsample) and stop early if it trips — record
+the tripped number in your RESULT `note`.
 
 ## Gate it (test your own work — this is the only gate)
 After a clean run, finish the `kaggle-leakage` self-checks on the OUTPUTS (no
