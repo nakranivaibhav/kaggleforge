@@ -1,4 +1,4 @@
-# kaggleforge
+# grandmaster
 
 A **human-in-the-loop, markdown-driven Kaggle solver that runs inside Claude
 Code.** You paste a competition link; Claude takes it from understanding the
@@ -103,7 +103,7 @@ irreversible, rate-limited, public action.
 ## 3. Repo layout
 
 ```
-kaggleforge/
+grandmaster/
   CLAUDE.md                       # the full operating playbook (read this for the rules)
   README.md                       # this file
   pyproject.toml  uv.lock         # tools/ deps only (modelling libs added per-comp)
